@@ -206,9 +206,10 @@ class BioformatsMetadata(PlateMetadata):
 
     _ome_dtypes = {v: k for k, v in _pixel_dtypes.items()}
 
-    def __init__(self, path):
+    def __init__(self, path, cycle_offset=[0, 0]):
         super(BioformatsMetadata, self).__init__()
         self.path = path
+        self.cycle_offset = cycle_offset
         self._init_metadata()
 
     def __getstate__(self):
@@ -354,6 +355,7 @@ class BioformatsMetadata(PlateMetadata):
             # coordinates are aligned.
             position_microns *= [-1, 1]
         position_pixels = position_microns / self.pixel_size
+        position_pixels += self.cycle_offset
         return position_pixels
 
     def tile_size(self, i):
@@ -367,9 +369,9 @@ class BioformatsMetadata(PlateMetadata):
 
 class BioformatsReader(Reader):
 
-    def __init__(self, path, plate=None, well=None):
+    def __init__(self, path, plate=None, well=None, cycle_offset=[0, 0]):
         self.path = path
-        self.metadata = BioformatsMetadata(self.path)
+        self.metadata = BioformatsMetadata(self.path, cycle_offset)
         self.metadata.set_active_plate_well(plate, well)
 
     def __getstate__(self):
@@ -667,7 +669,7 @@ class LayerAligner(object):
             print()
 
     def calculate_positions(self):
-        self.positions = self.reference_aligner.positions + self.shifts
+        self.positions = self.reference_aligner.positions[self.reference_idx] + self.shifts
         self.constrain_positions()
         self.centers = self.positions + self.metadata.size / 2
 
@@ -678,6 +680,8 @@ class LayerAligner(object):
         # Take the median of registered shifts to determine the offset
         # (translation) from the reference image to this one.
         offset = np.nan_to_num(np.median(self.shifts[~discard], axis=0))
+        if np.any(self.metadata.cycle_offset):
+            offset = np.zeros_like(offset)
         # Here we assume the fitted linear model from the reference image is
         # still appropriate, apart from the extra offset we just computed.
         predictions = self.reference_aligner.lr.predict(self.metadata.positions)
@@ -689,6 +693,8 @@ class LayerAligner(object):
         # Recalculate the mean shift, also ignoring the extreme values.
         discard |= extremes
         self.offset = np.nan_to_num(np.mean(self.shifts[~discard], axis=0))
+        if np.any(self.metadata.cycle_offset):
+            self.offset -= np.median((self.tile_positions - self.reference_positions), axis=0)
         # Fill in discarded shifts from the predictions.
         self.positions[discard] = predictions[discard] + self.offset
 
