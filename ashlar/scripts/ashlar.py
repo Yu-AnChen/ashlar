@@ -195,7 +195,11 @@ def process_single(
         if not quiet:
             print('Cycle %d:' % cycle)
             print('    reading %s' % filepath)
-        reader = reg.BioformatsReader(filepath, plate=plate, well=well)
+        metadata = None
+        if 'not_binned' in str(filepath):
+            metadata = reg.BioformatsReader(filepaths[0], plate=plate, well=well).metadata
+        reader = reg.BioformatsReader(filepath, metadata=metadata, plate=plate, well=well)
+        reader.metadata._size = metadata.size
         layer_aligner = reg.LayerAligner(reader, edge_aligner, **aligner_args)
         layer_aligner.run()
         mosaic_args_final = mosaic_args.copy()

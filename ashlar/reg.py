@@ -6,6 +6,7 @@ import xml.etree.ElementTree
 import io
 import uuid
 import struct
+import copy
 try:
     import pathlib
 except ImportError:
@@ -367,9 +368,15 @@ class BioformatsMetadata(PlateMetadata):
 
 class BioformatsReader(Reader):
 
-    def __init__(self, path, plate=None, well=None):
+    def __init__(self, path, metadata=None, plate=None, well=None):
         self.path = path
         self.metadata = BioformatsMetadata(self.path)
+        _reader = self.metadata._reader
+        tile_size = self.metadata.tile_size
+        if metadata:
+            self.metadata = copy.copy(metadata)
+            self.metadata._reader = _reader
+            self.metadata.tile_size = tile_size
         self.metadata.set_active_plate_well(plate, well)
 
     def __getstate__(self):
@@ -388,6 +395,8 @@ class BioformatsReader(Reader):
         dtype = self.metadata.pixel_dtype
         shape = self.metadata.tile_size(series)
         img = np.frombuffer(byte_array.tostring(), dtype=dtype).reshape(shape)
+        if shape[0] > 2000:
+            img = img.reshape(1080, 2, 1280, 2).sum(-1).sum(1).astype(dtype)
         return img
 
 
