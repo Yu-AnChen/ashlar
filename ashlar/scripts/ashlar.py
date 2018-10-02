@@ -19,6 +19,10 @@ def main(argv=sys.argv):
         help='an image file to be processed (one file per cycle)'
     )
     parser.add_argument(
+        '--cycle-offsets', nargs='*', 
+        help='cycle offsets: y_offset_cycle1 x_offset_cycle1 y_o_c2 x_o_c2 ...'
+    )
+    parser.add_argument(
         '-o', '--output', dest='output', default='.', metavar='DIR',
         help='write output image files to DIR; default is the current directory'
     )
@@ -93,6 +97,12 @@ def main(argv=sys.argv):
         path = pathlib.Path(filepaths[0])
         if path.is_dir():
             filepaths = sorted(str(p) for p in path.glob('*rcpnl'))
+    
+    if not args.cycle_offsets:
+        cycle_offsets = [0.]*2*len(filepaths)
+    else:
+        cycle_offsets = args.cycle_offsets
+        cycle_offsets = [float(o) for o in cycle_offsets]
 
     output_path = pathlib.Path(args.output)
     if not output_path.exists():
@@ -146,7 +156,7 @@ def main(argv=sys.argv):
         else:
             mosaic_path_format = str(output_path / args.filename_format)
             return process_single(
-                filepaths, mosaic_path_format, ffp_paths, dfp_paths,
+                filepaths, cycle_offsets, mosaic_path_format, ffp_paths, dfp_paths,
                 aligner_args, mosaic_args, args.pyramid, args.quiet
             )
     except ProcessingError as e:
@@ -155,7 +165,7 @@ def main(argv=sys.argv):
 
 
 def process_single(
-    filepaths, mosaic_path_format, ffp_paths, dfp_paths,
+    filepaths, cycle_offsets, mosaic_path_format, ffp_paths, dfp_paths,
     aligner_args, mosaic_args, pyramid, quiet, plate=None, well=None
 ):
 
@@ -171,11 +181,11 @@ def process_single(
     if pyramid:
         mosaic_args['combined'] = True
     num_channels = 0
-
+    
     if not quiet:
         print('Cycle 0:')
         print('    reading %s' % filepaths[0])
-    reader = reg.BioformatsReader(filepaths[0], plate=plate, well=well)
+    reader = reg.BioformatsReader(filepaths[0], cycle_offset=[cycle_offsets.pop(0), cycle_offsets.pop(0)], plate=plate, well=well)
     edge_aligner = reg.EdgeAligner(reader, **aligner_args)
     edge_aligner.run()
     mshape = edge_aligner.mosaic_shape
@@ -195,7 +205,7 @@ def process_single(
         if not quiet:
             print('Cycle %d:' % cycle)
             print('    reading %s' % filepath)
-        reader = reg.BioformatsReader(filepath, plate=plate, well=well)
+        reader = reg.BioformatsReader(filepath, cycle_offset=[cycle_offsets.pop(0), cycle_offsets.pop(0)], plate=plate, well=well)
         layer_aligner = reg.LayerAligner(reader, edge_aligner, **aligner_args)
         layer_aligner.run()
         mosaic_args_final = mosaic_args.copy()
@@ -214,7 +224,7 @@ def process_single(
         print("Building pyramid")
         reg.build_pyramid(
             output_path_0, num_channels, mshape, reader.metadata.pixel_dtype,
-            reader.metadata.pixel_size, mosaic_args['tile_size'], not quiet
+            mosaic_args['tile_size'], not quiet
         )
 
     return 0

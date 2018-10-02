@@ -206,9 +206,10 @@ class BioformatsMetadata(PlateMetadata):
 
     _ome_dtypes = {v: k for k, v in _pixel_dtypes.items()}
 
-    def __init__(self, path):
+    def __init__(self, path, cycle_offset=[0, 0]):
         super(BioformatsMetadata, self).__init__()
         self.path = path
+        self.cycle_offset = cycle_offset
         self._init_metadata()
 
     def __getstate__(self):
@@ -354,6 +355,7 @@ class BioformatsMetadata(PlateMetadata):
             # coordinates are aligned.
             position_microns *= [-1, 1]
         position_pixels = position_microns / self.pixel_size
+        position_pixels += self.cycle_offset
         return position_pixels
 
     def tile_size(self, i):
@@ -367,9 +369,9 @@ class BioformatsMetadata(PlateMetadata):
 
 class BioformatsReader(Reader):
 
-    def __init__(self, path, plate=None, well=None):
+    def __init__(self, path, plate=None, well=None, cycle_offset=[0, 0]):
         self.path = path
-        self.metadata = BioformatsMetadata(self.path)
+        self.metadata = BioformatsMetadata(self.path, cycle_offset)
         self.metadata.set_active_plate_well(plate, well)
 
     def __getstate__(self):
@@ -721,6 +723,8 @@ class LayerAligner(object):
         self.max_shift = max_shift
         self.max_shift_pixels = self.max_shift / self.metadata.pixel_size
         self.verbose = verbose
+        if self.reader.metadata.size[0] == 2 * self.reference_aligner.metadata.size[0]:
+            self.metadata._positions = self.reference_aligner.metadata.positions
         # FIXME Still a bit muddled here on the use of metadata positions vs.
         # corrected positions from the reference aligner. We probably want to
         # use metadata positions to find the cycle-to-cycle tile
@@ -782,6 +786,8 @@ class LayerAligner(object):
     def register(self, t):
         """Return relative shift between images and the alignment error."""
         its, ref_img, img = self.overlap(t)
+        if np.any(its.shape == 0):
+            return (0, 0), np.inf
         ref_img_f = fft2(whiten(ref_img))
         img_f = fft2(whiten(img))
         shift, error, _ = skimage.feature.register_translation(
@@ -795,6 +801,8 @@ class LayerAligner(object):
         corners1 = np.vstack([self.reference_positions[t],
                               self.tile_positions[t]])
         corners2 = corners1 + self.reader.metadata.size
+        if self.reader.metadata.size[0] == 2 * self.reference_aligner.metadata.size[0]:
+            corners2 = corners1 + self.reference_aligner.metadata.size
         its = Intersection(corners1, corners2)
         its.shape = its.shape // 32 * 32
         return its
@@ -804,8 +812,13 @@ class LayerAligner(object):
         ref_t = self.reference_idx[t]
         img1 = self.reference_aligner.reader.read(series=ref_t, c=0)
         img2 = self.reader.read(series=t, c=self.channel)
+        if img2.shape[0] == img1.shape[0] * 2:
+            row2, col2 = img2.shape
+            img2 = img2.reshape(2, 2, (row2 * col2) // 4).sum(1).reshape((row2 * col2) // 4, 2).sum(1).reshape(img1.shape)
+        print(img1.shape, img2.shape)
         ov1 = crop(img1, its.offsets[0], its.shape)
         ov2 = crop(img2, its.offsets[1], its.shape)
+        print(ov1.shape, ov2.shape)
         return its, ov1, ov2
 
     @property
@@ -985,9 +998,7 @@ class Mosaic(object):
         return img
 
 
-def build_pyramid(
-        path, num_channels, shape, dtype, pixel_size, tile_size, verbose=False
-):
+def build_pyramid(path, num_channels, shape, dtype, tile_size, verbose=False):
     max_level = 0
     shapes = [shape]
     while any(s > tile_size for s in shape):
@@ -1039,21 +1050,13 @@ def build_pyramid(
     )
     for level in range(max_level + 1):
         shape = shapes[level]
-        if level == 0:
-            psize_xml = (
-                u'PhysicalSizeX="{0}" PhysicalSizeXUnit="\u00b5m"'
-                u' PhysicalSizeY="{0}" PhysicalSizeYUnit="\u00b5m"'
-                .format(pixel_size)
-            )
-        else:
-            psize_xml = u''
         xml.write(u'<Image ID="Image:{}">'.format(level))
         xml.write(
             (u'<Pixels BigEndian="false" DimensionOrder="XYZCT"'
-             ' ID="Pixels:{level}" {psize_xml} SizeC="{num_channels}" SizeT="1"'
+             ' ID="Pixels:{level}" SizeC="{num_channels}" SizeT="1"'
              ' SizeX="{sizex}" SizeY="{sizey}" SizeZ="1" Type="{ome_dtype}">')
             .format(
-                level=level, psize_xml=psize_xml, num_channels=num_channels,
+                level=level, num_channels=num_channels,
                 sizex=shape[1], sizey=shape[0], ome_dtype=ome_dtype
             )
         )
