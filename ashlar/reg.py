@@ -757,9 +757,10 @@ class LayerAligner(object):
             print()
 
     def calculate_positions(self):
-        self.positions = (self.reference_aligner.positions - 
-                          self.reference_aligner.metadata.positions + 
-                          self.tile_positions)[self.reference_idx] + self.shifts
+        self.positions = (
+            self.reference_aligner.positions - 
+            self.reference_aligner.metadata.positions
+        )[self.reference_idx] + self.tile_positions + self.shifts
         self.constrain_positions()
         self.centers = self.positions + self.metadata.size / 2
 
