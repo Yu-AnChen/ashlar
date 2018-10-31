@@ -353,6 +353,9 @@ class BioformatsMetadata(PlateMetadata):
             # Invert Y so that stage position coordinates and image pixel
             # coordinates are aligned.
             position_microns *= [-1, 1]
+        if 'cf25' in str(self.path).lower():
+            # Flip X for images acquired with automated slide loading (CF25)
+            position_microns *= [-1, -1] 
         position_pixels = position_microns / self.pixel_size
         return position_pixels
 
