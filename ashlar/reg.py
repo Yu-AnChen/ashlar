@@ -371,6 +371,7 @@ class BioformatsReader(Reader):
         self.path = path
         self.metadata = BioformatsMetadata(self.path)
         self.metadata.set_active_plate_well(plate, well)
+        self.fix_no_overlap()
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -390,7 +391,12 @@ class BioformatsReader(Reader):
         img = np.frombuffer(byte_array.tostring(), dtype=dtype).reshape(shape)
         return img
 
-
+    def fix_no_overlap(self):
+        if 'no_overlap' in self.path:
+            # Assuming 1 percent overlap for non-overlapping tiles
+            overlap_from_error = (np.copy(self.metadata.positions) - self.metadata.origin) * 0.01
+            self.metadata._positions -= overlap_from_error
+            
 # TileStatistics = collections.namedtuple(
 #     'TileStatistics',
 #     'scan tile x_original y_original x y shift_x shift_y error'
