@@ -202,6 +202,7 @@ def process_single(
             print('Cycle %d:' % cycle)
             print('    reading %s' % filepath)
         reader = build_reader(filepath, plate_well=plate_well)
+        reader.metadata.positions
         layer_aligner = reg.LayerAligner(reader, edge_aligner, **aligner_args)
         layer_aligner.run()
         mosaic_args_final = mosaic_args.copy()

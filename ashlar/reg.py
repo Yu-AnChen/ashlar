@@ -671,7 +671,6 @@ class EdgeAligner(object):
 
 class LayerAligner(object):
 
-    def __init__(self, reader, reference_aligner, channel=None, max_shift=15,
                  filter_sigma=0.0, verbose=False):
         self.reader = reader
         self.reference_aligner = reference_aligner
@@ -688,8 +687,8 @@ class LayerAligner(object):
         # use metadata positions to find the cycle-to-cycle tile
         # correspondences, but the corrected positions for computing our
         # corrected positions.
-        self.tile_positions = self.metadata.positions - reference_aligner.origin
-        reference_positions = reference_aligner.positions
+        self.tile_positions = self.metadata.positions
+        reference_positions = reference_aligner.metadata.positions
         dist = scipy.spatial.distance.cdist(reference_positions,
                                             self.tile_positions)
         self.reference_idx = np.argmin(dist, 0)
@@ -716,7 +715,10 @@ class LayerAligner(object):
             print()
 
     def calculate_positions(self):
-        self.positions = self.tile_positions + self.shifts
+        self.positions = (
+            self.reference_aligner.positions - 
+            self.reference_aligner.metadata.positions
+        )[self.reference_idx] + self.tile_positions + self.shifts
         self.constrain_positions()
         self.centers = self.positions + self.metadata.size / 2
 
