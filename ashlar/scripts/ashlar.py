@@ -8,6 +8,7 @@ except ImportError:
     import pathlib2 as pathlib
 from .. import __version__ as VERSION
 from .. import reg
+from .. import thumbnail
 from ..reg import BioformatsReader
 from ..filepattern import FilePatternReader
 from ..zen import ZenReader
@@ -202,7 +203,11 @@ def process_single(
             print('Cycle %d:' % cycle)
             print('    reading %s' % filepath)
         reader = build_reader(filepath, plate_well=plate_well)
+        cycle_offset = thumbnail.calculate_cycle_offset(
+            reg.BioformatsReader(filepaths[0], plate=plate, well=well), reader
+        )
         reader.metadata.positions
+        reader.metadata._positions += cycle_offset
         layer_aligner = reg.LayerAligner(reader, edge_aligner, **aligner_args)
         layer_aligner.run()
         mosaic_args_final = mosaic_args.copy()
