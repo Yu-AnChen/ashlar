@@ -396,7 +396,11 @@ class BioformatsReader(Reader):
         shape = self.metadata.tile_size(series)
         img = np.frombuffer(byte_array.tostring(), dtype=dtype).reshape(shape)
         if shape[0] > 2000:
-            img = img.reshape(1080, 2, 1280, 2).sum(-1).sum(1).astype(dtype)
+            img = np.clip(
+                img.reshape(1080, 2, 1280, 2).sum(-1).sum(1),
+                0,
+                65535
+            ).astype(dtype)
         return img
 
 
