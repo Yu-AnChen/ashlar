@@ -790,6 +790,9 @@ class LayerAligner(object):
             return (0, 0), np.inf 
         ref_img_f = fft2(whiten(ref_img))
         img_f = fft2(whiten(img))
+        if 'HESTAINING' in str(self.reader.path).upper():
+            print('HE Stainingimg_f')
+            img_f = fft2(whiten(np.invert(img)))
         shift, error, _ = skimage.feature.register_translation(
             ref_img_f, img_f, 10, 'fourier'
         )
