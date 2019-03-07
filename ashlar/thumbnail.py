@@ -9,6 +9,7 @@ from . import reg
 from skimage.transform import rescale
 from skimage.feature import register_translation
 from skimage.io import imsave
+import warnings
 
 
 def make_thumbnail(reader, channel=0, scale=0.05):
@@ -85,4 +86,13 @@ def _save_as_tif(img, file_path, post_fix=''):
     out_path = input_path.parent / filename
     out_path = out_path.with_suffix('').with_suffix('.tif')
 
-    imsave(out_path, img)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            'ignore', 'Possible precision loss', UserWarning,
+            '^skimage\.util\.dtype'
+        )
+        warnings.filterwarnings(
+            'ignore', '.* is a low contrast image', UserWarning,
+            '^skimage\.io'
+        )
+        imsave(out_path, img)
