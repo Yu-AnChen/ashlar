@@ -84,7 +84,7 @@ def _save_as_tif(img, file_path, post_fix=''):
 
     filename = input_path.name.replace('.', post_fix + '.', 1)
     out_path = input_path.parent / filename
-    out_path = out_path.with_suffix('').with_suffix('.tif')
+    out_path = out_path.with_suffix('.tif')
 
     with warnings.catch_warnings():
         warnings.filterwarnings(
