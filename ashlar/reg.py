@@ -437,6 +437,7 @@ class EdgeAligner(object):
         self.build_spanning_tree()
         self.calculate_positions()
         self.fit_model()
+        self.report_pure_prediction_tiles()
 
     def check_overlaps(self):
         # This might be better addressed by removing the +1 from the
@@ -579,6 +580,18 @@ class EdgeAligner(object):
         self.lr.intercept_ -= self.origin
         self.centers = self.positions + self.metadata.size / 2
 
+    def report_pure_prediction_tiles(self):
+        components = list(nx.connected_component_subgraphs(self.spanning_tree))
+        pure_prediction_tiles = [
+            tiles
+            for cp in components
+            for tiles in cp if len(cp) == 1
+        ]
+        self.connected_tiles_mask = np.zeros(self.metadata.num_images).reshape(-1, 1)
+        for cp in components:
+            self.connected_tiles_mask[sorted(cp)] = sorted(cp)[0]
+        self.pure_prediction_tiles = np.zeros(self.metadata.num_images).reshape(-1, 1)
+        self.pure_prediction_tiles[pure_prediction_tiles] = 1
 
     def register_pair(self, t1, t2):
         """Return relative shift between images and the alignment error."""
@@ -757,6 +770,8 @@ class LayerAligner(object):
         self.offset = np.nan_to_num(np.mean(self.shifts[~discard], axis=0))
         # Fill in discarded shifts from the predictions.
         self.positions[discard] = predictions[discard] + self.offset
+        self.pure_prediction_tiles = np.zeros(self.metadata.num_images).reshape(-1, 1)
+        self.pure_prediction_tiles[discard] = 1 
 
     def register(self, t):
         """Return relative shift between images and the alignment error."""

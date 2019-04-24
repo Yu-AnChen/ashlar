@@ -12,6 +12,8 @@ from .. import thumbnail
 from ..reg import BioformatsReader
 from ..filepattern import FilePatternReader
 from ..zen import ZenReader
+import numpy as np
+import pandas as pd
 
 
 def main(argv=sys.argv):
@@ -185,6 +187,19 @@ def process_single(
     reader = build_reader(filepaths[0], plate_well=plate_well)
     edge_aligner = reg.EdgeAligner(reader, **aligner_args)
     edge_aligner.run()
+
+    csv_path = pathlib.Path(mosaic_path_format).with_name(
+        'p_label_positions_cycle{:1}.csv'.format(1)
+    )
+    ea = edge_aligner
+    df1 = pd.DataFrame(
+        np.hstack((ea.positions, ea.connected_tiles_mask, ea.pure_prediction_tiles)),
+        columns=[
+            'pos_y', 'pos_x', 'tree_ids', 'pure_prediction'
+        ],
+    )
+    df1.to_csv(csv_path)
+
     mshape = edge_aligner.mosaic_shape
     mosaic_args_final = mosaic_args.copy()
     mosaic_args_final['first'] = True
@@ -217,6 +232,23 @@ def process_single(
         layer_aligner = reg.LayerAligner(reader, edge_aligner, **aligner_args)
         layer_aligner.cycle_offset = cycle_offset
         layer_aligner.run()
+
+        csv_path_layer = pathlib.Path(mosaic_path_format).with_name(
+            'p_label_positions_cycle{:1}.csv'.format(cycle + 1)
+        )
+        la = layer_aligner
+        df2 = pd.DataFrame(
+            np.hstack((
+                la.positions, la.reference_idx.reshape(-1, 1), 
+                la.shifts, la.errors.reshape(-1, 1), la.pure_prediction_tiles
+            )),
+            columns=[
+                'pos_y', 'pos_x', 'ref_idx', 
+                'shifts_y', 'shifts_x', 'errors', 'pure_prediction'
+            ],
+        )
+        df2.to_csv(csv_path_layer)
+
         mosaic_args_final = mosaic_args.copy()
         if ffp_paths:
             mosaic_args_final['ffp_path'] = ffp_paths[cycle]
