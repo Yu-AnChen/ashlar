@@ -500,6 +500,9 @@ class EdgeAligner(object):
                 sys.stdout.flush()
             img1 = self.reader.read(t1, self.channel)[offset1:offset1+w, :]
             img2 = self.reader.read(t2, self.channel)[offset2:offset2+w, :]
+            if not img1.any() or not img2.any():
+                errors[i] = np.nan
+                continue
             # FIXME Refactor the following bit out of here and _register.
             img1_f = fft2(whiten(img1))
             img2_f = fft2(whiten(img2))
@@ -510,7 +513,7 @@ class EdgeAligner(object):
         if self.verbose:
             print()
         self.errors_negative_sampled = errors
-        self.max_error = np.percentile(errors, self.false_positive_ratio * 100)
+        self.max_error = np.percentile(errors[~np.isnan(errors)], self.false_positive_ratio * 100)
         print('max error', self.max_error)
 
     def register_all(self):
@@ -626,6 +629,8 @@ class EdgeAligner(object):
         # Perform the actual pixel-based alignment, given a minimum size for the
         # overlap region.
         its, img1, img2 = self.overlap(t1, t2, min_size)
+        if not img1.any() or not img2.any():
+            return np.array([0., 0.]), np.nan
         img1_f = fft2(whiten(img1))
         img2_f = fft2(whiten(img2))
         shift, error, _ = skimage.feature.register_translation(
@@ -769,6 +774,12 @@ class LayerAligner(object):
         cycle_offset = getattr(self, 'cycle_offset', np.array([0.0, 0.0]))
         # Discard camera background registration
         discard = ((self.shifts + cycle_offset) % self.metadata.size == 0).all(axis=1)
+        # Discard synthetick background registration
+        # Note that for images with all zero pixel intensity, the reported
+        # shift is 0.75, 0.7, 1 for upsample_factor = 100, 10, 1, respectively
+        # but the error is always NaN
+        discard |= (self.shifts == 0).all(axis=1)
+        discard |= np.isnan(self.errors)
         # Take the median of registered shifts to determine the offset
         # (translation) from the reference image to this one.
         offset = np.nan_to_num(np.median(self.shifts[~discard], axis=0))
@@ -790,7 +801,9 @@ class LayerAligner(object):
         """Return relative shift between images and the alignment error."""
         its, ref_img, img = self.overlap(t)
         if np.any(np.array(its.shape) == 0): 
-            return (0, 0), np.inf 
+            return (0, 0), np.inf
+        if not ref_img.any() or not img.any():
+            return np.array([0., 0.]), np.nan
         ref_img_f = fft2(whiten(ref_img))
         img_f = fft2(whiten(img))
         if 'HESTAINING' in str(self.reader.path).upper():
