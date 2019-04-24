@@ -494,11 +494,15 @@ class EdgeAligner(object):
                 sys.stdout.flush()
             img1 = self.reader.read(t1, self.channel)[offset1:offset1+w, :]
             img2 = self.reader.read(t2, self.channel)[offset2:offset2+w, :]
+            if not img1.any() or not img2.any():
+                errors[i] = np.nan
+                continue
             _, errors[i] = register(img1, img2, self.filter_sigma)
         if self.verbose:
             print()
         self.errors_negative_sampled = errors
-        self.max_error = np.percentile(errors, self.false_positive_ratio * 100)
+        self.max_error = np.percentile(errors[~np.isnan(errors)], self.false_positive_ratio * 100)
+        print('max error', self.max_error)
 
     def register_all(self):
         n = self.neighbors_graph.size()
@@ -595,6 +599,8 @@ class EdgeAligner(object):
 
     def _register(self, t1, t2, min_size):
         its, img1, img2 = self.overlap(t1, t2, min_size)
+        if not img1.any() or not img2.any():
+            return np.array([0., 0.]), np.nan
         # Account for padding, flipping the sign depending on the direction
         # between the tiles.
         p1, p2 = self.metadata.positions[[t1, t2]]
@@ -728,6 +734,12 @@ class LayerAligner(object):
         cycle_offset = getattr(self, 'cycle_offset', np.array([0.0, 0.0]))
         # Discard camera background registration
         discard = ((self.shifts + cycle_offset) % self.metadata.size == 0).all(axis=1)
+        # Discard synthetick background registration
+        # Note that for images with all zero pixel intensity, the reported
+        # shift is 0.75, 0.7, 1 for upsample_factor = 100, 10, 1, respectively
+        # but the error is always NaN
+        discard |= (self.shifts == 0).all(axis=1)
+        discard |= np.isnan(self.errors)
         # Take the median of registered shifts to determine the offset
         # (translation) from the reference image to this one.
         offset = np.nan_to_num(np.median(self.shifts[~discard], axis=0))
@@ -749,7 +761,9 @@ class LayerAligner(object):
         """Return relative shift between images and the alignment error."""
         its, ref_img, img = self.overlap(t)
         if np.any(np.array(its.shape) == 0): 
-            return (0, 0), np.inf 
+            return (0, 0), np.inf
+        if not ref_img.any() or not img.any():
+            return np.array([0., 0.]), np.nan
         shift, error = register(ref_img, img, self.filter_sigma)
         # We don't use padding and thus can skip the math to account for it.
         assert (its.padding == 0).all(), "Unexpected non-zero padding"
