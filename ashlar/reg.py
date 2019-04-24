@@ -478,6 +478,7 @@ class EdgeAligner(object):
         # with a small number of tiles, we can easily get 1000 non-repeating
         # strips due to also varying the offset.
         i = 0
+        np.random.seed(0)
         for i in range(n):
             # Ensure pair is two different tiles and tiles are not neighbors.
             # This is more conservative than necessary -- we could admit
@@ -510,6 +511,7 @@ class EdgeAligner(object):
             print()
         self.errors_negative_sampled = errors
         self.max_error = np.percentile(errors, self.false_positive_ratio * 100)
+        print('max error', self.max_error)
 
     def register_all(self):
         n = self.neighbors_graph.size()
