@@ -198,7 +198,7 @@ def process_single(
             'pos_y', 'pos_x', 'tree_ids', 'pure_prediction'
         ],
     )
-    df1.to_csv(csv_path)
+    df1.to_csv(str(csv_path))
 
     mshape = edge_aligner.mosaic_shape
     mosaic_args_final = mosaic_args.copy()
@@ -247,7 +247,7 @@ def process_single(
                 'shifts_y', 'shifts_x', 'errors', 'pure_prediction'
             ],
         )
-        df2.to_csv(csv_path_layer)
+        df2.to_csv(str(csv_path_layer))
 
         mosaic_args_final = mosaic_args.copy()
         if ffp_paths:
