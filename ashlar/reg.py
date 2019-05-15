@@ -786,7 +786,7 @@ class LayerAligner(object):
         # registration. We need to throw those out for this purpose.
         cycle_offset = getattr(self, 'cycle_offset', np.array([0.0, 0.0]))
         # Discard camera background registration
-        discard = ((self.shifts + cycle_offset) % self.metadata.size == 0).all(axis=1)
+        discard = ((self.shifts + cycle_offset).astype(self.metadata.size.dtype) % self.metadata.size == 0).all(axis=1)
         # Discard synthetick background registration
         # Note that for images with all zero pixel intensity, the reported
         # shift is 0.75, 0.7, 1 for upsample_factor = 100, 10, 1, respectively
