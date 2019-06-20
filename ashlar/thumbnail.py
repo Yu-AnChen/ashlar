@@ -34,8 +34,8 @@ def make_thumbnail(reader, channel=0, scale=0.05):
 
 def calculate_image_offset(img1, img2, upsample_factor=1):
 
-    ref = reg.fft2(reg.whiten(img1))
-    test = reg.fft2(reg.whiten(img2))
+    ref = reg.fft2(reg.whiten(img1, 0))
+    test = reg.fft2(reg.whiten(img2, 0))
 
     shift, error, _ = register_translation(ref, test, upsample_factor, 'fourier')
 
