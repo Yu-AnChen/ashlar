@@ -690,7 +690,7 @@ class EdgeAligner(object):
 
 
 class LayerAligner(object):
-
+    def __init__(self, reader, reference_aligner, channel=None, max_shift=15,
                  filter_sigma=0.0, verbose=False):
         self.reader = reader
         self.reference_aligner = reference_aligner
