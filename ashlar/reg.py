@@ -751,6 +751,7 @@ class LayerAligner(object):
             discard = ((self.shifts + cycle_offset).astype(self.metadata.size.dtype) % self.metadata.size == 0).all(axis=1)
         else:
             discard = ((self.shifts + cycle_offset) % self.metadata.size == 0).all(axis=1)
+        discard |= (np.absolute(self.shifts + cycle_offset) < 0.001).all(axis=1)
         # Discard synthetick background registration
         # Note that for images with all zero pixel intensity, the reported
         # shift is 0.75, 0.7, 1 for upsample_factor = 100, 10, 1, respectively
