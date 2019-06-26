@@ -747,7 +747,7 @@ class LayerAligner(object):
         # registration. We need to throw those out for this purpose.
         cycle_offset = getattr(self, 'cycle_offset', np.array([0.0, 0.0]))
         # Discard camera background registration
-        if 'xdce' in self.reader.path:
+        if 'xdce' in str(self.reader.path):
             discard = ((self.shifts + cycle_offset).astype(self.metadata.size.dtype) % self.metadata.size == 0).all(axis=1)
         else:
             discard = ((self.shifts + cycle_offset) % self.metadata.size == 0).all(axis=1)
