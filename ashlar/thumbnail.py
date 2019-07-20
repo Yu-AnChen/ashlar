@@ -55,8 +55,12 @@ def calculate_cycle_offset(reader1, reader2, channel=0, scale=0.05, save=(False,
         [img1*save[0], img2*save[1]]
     ):
         if img.any(): _save_as_tif(img, file_path, post_fix='-thumbnail')
-
-    img_offset = calculate_image_offset(img1, img2, int(1/scale)) * 1/scale
+    
+    min_row, min_col = np.array((img1.shape, img2.shape)).min(axis=0)
+    img_offset = calculate_image_offset(
+        img1[:min_row, :min_col], img2[:min_row, :min_col],
+        int(1/scale)
+    ) * 1/scale
     ori_diff = reader2.metadata.origin - reader1.metadata.origin
 
     print(
