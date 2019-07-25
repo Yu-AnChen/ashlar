@@ -14,6 +14,7 @@ from ..filepattern import FilePatternReader
 from ..zen import ZenReader
 import numpy as np
 import pandas as pd
+import random
 
 
 def main(argv=sys.argv):
@@ -188,8 +189,9 @@ def process_single(
     edge_aligner = reg.EdgeAligner(reader, **aligner_args)
     edge_aligner.run()
 
+    rand = str(int(random.random() * 1000))
     csv_path = pathlib.Path(mosaic_path_format).with_name(
-        'p_label_positions_cycle{:1}.csv'.format(1)
+        'p_label_positions_cycle{:1}-{}.csv'.format(1, rand)
     )
     ea = edge_aligner
     df1 = pd.DataFrame(
@@ -234,7 +236,7 @@ def process_single(
         layer_aligner.run()
 
         csv_path_layer = pathlib.Path(mosaic_path_format).with_name(
-            'p_label_positions_cycle{:1}.csv'.format(cycle + 1)
+            'p_label_positions_cycle{:1}-{}.csv'.format((cycle + 1), rand)
         )
         la = layer_aligner
         df2 = pd.DataFrame(
