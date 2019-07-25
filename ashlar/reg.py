@@ -747,11 +747,13 @@ class LayerAligner(object):
         # registration. We need to throw those out for this purpose.
         cycle_offset = getattr(self, 'cycle_offset', np.array([0.0, 0.0]))
         # Discard camera background registration
-        if 'xdce' in str(self.reader.path):
-            discard = ((self.shifts + cycle_offset).astype(self.metadata.size.dtype) % self.metadata.size == 0).all(axis=1)
-        else:
-            discard = ((self.shifts + cycle_offset) % self.metadata.size == 0).all(axis=1)
-        discard |= (np.absolute(self.shifts + cycle_offset) < 0.001).all(axis=1)
+        remainders = (self.shifts + cycle_offset) % self.metadata.size
+        bg_registration_cutoff = 0.001
+        camera_registration = [
+            (remainders[:, i] < bg_registration_cutoff) | (np.absolute(remainders[:, i] - self.metadata.size[i]) < bg_registration_cutoff)
+            for i in range(len(self.metadata.size))
+        ]
+        discard = np.prod(camera_registration, axis=0).astype(bool)
         # Discard synthetick background registration
         # Note that for images with all zero pixel intensity, the reported
         # shift is 0.75, 0.7, 1 for upsample_factor = 100, 10, 1, respectively
