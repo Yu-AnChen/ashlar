@@ -422,7 +422,7 @@ class EdgeAligner(object):
         self.channel = channel
         self.verbose = verbose
         # Unit is micrometers.
-        self.max_shift = max_shift
+        self.max_shift = 15
         self.max_shift_pixels = self.max_shift / self.metadata.pixel_size
         self.false_positive_ratio = false_positive_ratio
         self.filter_sigma = filter_sigma
