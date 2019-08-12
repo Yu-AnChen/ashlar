@@ -438,6 +438,7 @@ class EdgeAligner(object):
         self.build_spanning_tree()
         self.calculate_positions()
         self.fit_model()
+        self.constrain_positions()
         self.report_pure_prediction_tiles()
 
     def check_overlaps(self):
@@ -522,7 +523,7 @@ class EdgeAligner(object):
         self.all_errors = np.array([x[1] for x in self._cache.values()])
         # Set error values above the threshold to infinity.
         for k, v in self._cache.items():
-            if v[1] > self.max_error or any(np.abs(v[0]) > self.max_shift_pixels):
+            if v[1] > self.max_error:
                 self._cache[k] = (v[0], np.inf)
 
     def build_spanning_tree(self):
@@ -583,19 +584,34 @@ class EdgeAligner(object):
         self.positions -= self.origin
         self.lr.intercept_ -= self.origin
         self.centers = self.positions + self.metadata.size / 2
+        self.pure_prediction_tiles_idxs = [
+            tiles
+            for cp in components if len(cp) == 1
+            for tiles in cp
+        ]
+
+    def constrain_positions(self):
+        predictions = self.lr.predict(self.metadata.positions)
+        distances = np.linalg.norm(predictions - self.positions, axis=1)
+        # Only do stats on the non-predicted positions
+        non_predicted = np.ones(self.metadata.num_images).astype(bool)
+        non_predicted[self.pure_prediction_tiles_idxs] = False
+        q1, q3 = np.percentile(distances[non_predicted], [25, 75])
+        iqr = q3 - q1
+        lower_bound, upper_bound = [q1 - 1.5 * iqr, q3 + 1.5 * iqr]
+        outliers = np.any([distances > upper_bound, distances < lower_bound], axis=0)
+        self.positions[outliers] = predictions[outliers]
+        self.outlier_tiles, = outliers.nonzero()
+        self.centers = self.positions + self.metadata.size / 2
 
     def report_pure_prediction_tiles(self):
         components = list(nx.connected_component_subgraphs(self.spanning_tree))
-        pure_prediction_tiles = [
-            tiles
-            for cp in components
-            for tiles in cp if len(cp) == 1
-        ]
+        self.pure_prediction_tiles_idxs += self.outlier_tiles.tolist() 
         self.connected_tiles_mask = np.zeros(self.metadata.num_images).reshape(-1, 1)
         for cp in components:
             self.connected_tiles_mask[sorted(cp)] = sorted(cp)[0]
         self.pure_prediction_tiles = np.zeros(self.metadata.num_images).reshape(-1, 1)
-        self.pure_prediction_tiles[pure_prediction_tiles] = 1
+        self.pure_prediction_tiles[self.pure_prediction_tiles_idxs] = 1
 
     def register_pair(self, t1, t2):
         """Return relative shift between images and the alignment error."""
