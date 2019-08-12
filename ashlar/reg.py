@@ -416,7 +416,7 @@ class EdgeAligner(object):
 
     def __init__(
         self, reader, channel=0, max_shift=15, false_positive_ratio=0.01,
-        filter_sigma=0.0, verbose=False
+        filter_sigma=0.0, verbose=False, dark_current_threshold=100
     ):
         self.reader = reader
         self.channel = channel
@@ -426,6 +426,7 @@ class EdgeAligner(object):
         self.max_shift_pixels = self.max_shift / self.metadata.pixel_size
         self.false_positive_ratio = false_positive_ratio
         self.filter_sigma = filter_sigma
+        self.dark_current_threshold = dark_current_threshold
         self._cache = {}
 
     neighbors_graph = neighbors_graph
@@ -499,6 +500,9 @@ class EdgeAligner(object):
             if not img1.any() or not img2.any():
                 errors[i] = np.nan
                 continue
+            if bool(self.dark_current_threshold):
+                img1 = apply_noise(img1, self.dark_current_threshold)
+                img2 = apply_noise(img2, self.dark_current_threshold)
             _, errors[i] = register(img1, img2, self.filter_sigma)
         if self.verbose:
             print()
@@ -615,6 +619,9 @@ class EdgeAligner(object):
         its, img1, img2 = self.overlap(t1, t2, min_size)
         if not img1.any() or not img2.any():
             return np.array([0., 0.]), np.nan
+        if bool(self.dark_current_threshold):
+            img1 = apply_noise(img1, self.dark_current_threshold)
+            img2 = apply_noise(img2, self.dark_current_threshold)
         # Account for padding, flipping the sign depending on the direction
         # between the tiles.
         p1, p2 = self.metadata.positions[[t1, t2]]
@@ -1141,6 +1148,10 @@ def whiten(img, sigma):
     #img = np.log(img)
     #img = img - scipy.ndimage.filters.gaussian_filter(img, 2) + 0.5
 
+def apply_noise(img, cutoff):
+    output = img.copy()
+    output[img < cutoff] = (np.random.random(img.shape) * cutoff)[img < cutoff]
+    return output
 
 def register(img1, img2, sigma):
     img1w = whiten(img1, sigma)
