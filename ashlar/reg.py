@@ -747,18 +747,16 @@ class LayerAligner(object):
         # registration. We need to throw those out for this purpose.
         cycle_offset = getattr(self, 'cycle_offset', np.array([0.0, 0.0]))
         # Discard camera background registration
-        remainders = (self.shifts + cycle_offset) % self.metadata.size
-        bg_registration_cutoff = 0.001
-        camera_registration = [
-            (remainders[:, i] < bg_registration_cutoff) | (np.absolute(remainders[:, i] - self.metadata.size[i]) < bg_registration_cutoff)
-            for i in range(len(self.metadata.size))
-        ]
-        discard = np.prod(camera_registration, axis=0).astype(bool)
+        position_diffs = np.absolute(self.positions 
+            - self.reference_aligner.positions[self.reference_idx])
+        # round the diffs to one decimal place because we upsample 10 
+        # times the image to calculate subpixel shifts
+        position_diffs = np.rint(position_diffs * 10) / 10
+        discard = (position_diffs == 0).all(axis=1)
         # Discard synthetick background registration
         # Note that for images with all zero pixel intensity, the reported
         # shift is 0.75, 0.7, 1 for upsample_factor = 100, 10, 1, respectively
         # but the error is always NaN
-        discard |= (self.shifts == 0).all(axis=1)
         discard |= np.isnan(self.errors)
         # Take the median of registered shifts to determine the offset
         # (translation) from the reference image to this one.
