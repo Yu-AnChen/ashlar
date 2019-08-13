@@ -225,12 +225,6 @@ def process_single(
             print('Cycle %d:' % cycle)
             print('    reading %s' % filepath)
         reader = build_reader(filepath, plate_well=plate_well)
-        cycle_offset = thumbnail.calculate_cycle_offset(
-            ref_reader, reader,
-            channel=aligner_args['channel'], save=(False, True)
-        )
-        reader.metadata.positions
-        reader.metadata._positions += cycle_offset
         layer_aligner = reg.LayerAligner(reader, edge_aligner, **aligner_args)
         layer_aligner.cycle_offset = cycle_offset
         layer_aligner.run()

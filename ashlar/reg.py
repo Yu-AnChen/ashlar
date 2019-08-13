@@ -707,18 +707,26 @@ class LayerAligner(object):
         # use metadata positions to find the cycle-to-cycle tile
         # correspondences, but the corrected positions for computing our
         # corrected positions.
-        self.tile_positions = self.metadata.positions
-        reference_positions = reference_aligner.metadata.positions
-        dist = scipy.spatial.distance.cdist(reference_positions,
-                                            self.tile_positions)
-        self.reference_idx = np.argmin(dist, 0)
-        self.reference_positions = reference_positions[self.reference_idx]
 
     neighbors_graph = neighbors_graph
 
     def run(self):
+        self.coarse_align()
         self.register_all()
         self.calculate_positions()
+
+    def coarse_align(self):
+        from . import thumbnail
+        self.cycle_offset = thumbnail.calculate_cycle_offset(
+            self.reference_aligner.reader, self.reader,
+            channel=self.channel, save=(False, True)
+        )
+        self.corrected_nominal_positions = self.metadata.positions + self.cycle_offset
+        reference_positions = self.reference_aligner.metadata.positions
+        dist = scipy.spatial.distance.cdist(reference_positions,
+                                            self.corrected_nominal_positions)
+        self.reference_idx = np.argmin(dist, 0)
+        self.reference_positions = reference_positions[self.reference_idx]
 
     def register_all(self):
         n = self.metadata.num_images
@@ -735,10 +743,8 @@ class LayerAligner(object):
             print()
 
     def calculate_positions(self):
-        self.positions = (
-            self.reference_aligner.positions - 
-            self.reference_aligner.metadata.positions
-        )[self.reference_idx] + self.tile_positions + self.shifts
+        self.positions = self.corrected_nominal_positions + self.shifts
+        self.positions += self.reference_aligner.shifts[self.reference_idx]
         self.constrain_positions()
         self.centers = self.positions + self.metadata.size / 2
 
@@ -763,7 +769,7 @@ class LayerAligner(object):
         offset = np.nan_to_num(np.median(self.shifts[~discard], axis=0))
         # Here we assume the fitted linear model from the reference image is
         # still appropriate, apart from the extra offset we just computed.
-        predictions = self.reference_aligner.lr.predict(self.metadata.positions)
+        predictions = self.reference_aligner.lr.predict(self.corrected_nominal_positions)
         # Discard any tile registration that's too far from the linear model,
         # replacing it with the relevant model prediction.
         distance = np.linalg.norm(self.positions - predictions - offset, axis=1)
@@ -791,7 +797,7 @@ class LayerAligner(object):
 
     def intersection(self, t):
         corners1 = np.vstack([self.reference_positions[t],
-                              self.tile_positions[t]])
+                              self.corrected_nominal_positions[t]])
         corners2 = corners1 + self.reader.metadata.size
         its = Intersection(corners1, corners2)
         its.shape = its.shape // 32 * 32
