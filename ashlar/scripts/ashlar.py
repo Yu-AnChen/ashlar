@@ -8,7 +8,6 @@ except ImportError:
     import pathlib2 as pathlib
 from .. import __version__ as VERSION
 from .. import reg
-from .. import thumbnail
 from ..reg import BioformatsReader
 from ..filepattern import FilePatternReader
 from ..zen import ZenReader
@@ -215,18 +214,12 @@ def process_single(
     mosaic.run()
     num_channels += len(mosaic.channels)
 
-    reader.thumbnail_img = thumbnail.thumbnail(
-        reader, channel=aligner_args['channel']
-    )
-    ref_reader = reader
-
     for cycle, filepath in enumerate(filepaths[1:], 1):
         if not quiet:
             print('Cycle %d:' % cycle)
             print('    reading %s' % filepath)
         reader = build_reader(filepath, plate_well=plate_well)
         layer_aligner = reg.LayerAligner(reader, edge_aligner, **aligner_args)
-        layer_aligner.cycle_offset = cycle_offset
         layer_aligner.run()
 
         csv_path_layer = pathlib.Path(mosaic_path_format).with_name(

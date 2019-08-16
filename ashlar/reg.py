@@ -431,6 +431,7 @@ class EdgeAligner(object):
     neighbors_graph = neighbors_graph
 
     def run(self):
+        self.make_thumbnail()
         self.check_overlaps()
         self.compute_threshold()
         self.register_all()
@@ -438,6 +439,12 @@ class EdgeAligner(object):
         self.calculate_positions()
         self.fit_model()
         self.report_pure_prediction_tiles()
+
+    def make_thumbnail(self):
+        from . import thumbnail
+        self.reader.thumbnail_img = thumbnail.thumbnail(
+            self.reader, channel=self.channel
+        )
 
     def check_overlaps(self):
         # This might be better addressed by removing the +1 from the
