@@ -734,6 +734,7 @@ class LayerAligner(object):
                                             self.corrected_nominal_positions)
         self.reference_idx = np.argmin(dist, 0)
         self.reference_positions = reference_positions[self.reference_idx]
+        self.reference_aligner_positions = self.reference_aligner.positions[self.reference_idx]
 
     def register_all(self):
         n = self.metadata.num_images
@@ -751,7 +752,11 @@ class LayerAligner(object):
 
     def calculate_positions(self):
         self.positions = self.corrected_nominal_positions + self.shifts
-        self.positions += self.reference_aligner.shifts[self.reference_idx]
+        self.positions += (
+            self.reference_aligner_positions - 
+            self.reference_positions
+        )
+        self.reference_aligner.shifts[self.reference_idx]
         self.constrain_positions()
         self.centers = self.positions + self.metadata.size / 2
 
@@ -760,8 +765,9 @@ class LayerAligner(object):
         # registration. We need to throw those out for this purpose.
         cycle_offset = getattr(self, 'cycle_offset', np.array([0.0, 0.0]))
         # Discard camera background registration
-        position_diffs = np.absolute(self.positions 
-            - self.reference_aligner.positions[self.reference_idx])
+        position_diffs = np.absolute(
+            self.positions - self.reference_aligner_positions
+        )
         # round the diffs to one decimal place because we upsample 10 
         # times the image to calculate subpixel shifts
         position_diffs = np.rint(position_diffs * 10) / 10
