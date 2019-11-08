@@ -823,6 +823,8 @@ class LayerAligner(object):
             series=ref_t, c=self.reference_aligner.channel
         )
         img2 = self.reader.read(series=t, c=self.channel)
+        if 'brightfield' in self.reader.path.lower():
+            img2 = np.invert(img2)
         ov1 = crop(img1, its.offsets[0], its.shape)
         ov2 = crop(img2, its.offsets[1], its.shape)
         return its, ov1, ov2
