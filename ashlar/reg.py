@@ -416,7 +416,7 @@ class EdgeAligner(object):
 
     def __init__(
         self, reader, channel=0, max_shift=15, false_positive_ratio=0.01,
-        filter_sigma=0.0, verbose=False, dark_current_threshold=100
+        filter_sigma=0.0, verbose=False, dark_current_threshold=None
     ):
         self.reader = reader
         self.channel = channel
@@ -433,6 +433,7 @@ class EdgeAligner(object):
 
     def run(self):
         self.check_overlaps()
+        self.estimate_dark_current()
         self.compute_threshold()
         self.register_all()
         self.build_spanning_tree()
@@ -456,6 +457,20 @@ class EdgeAligner(object):
         elif any(failures):
             warnings.warn("Some neighboring tiles have zero overlap.")
 
+    def estimate_dark_current(self):
+        if self.dark_current_threshold is not None:
+            return
+        n = self.metadata.num_images
+        if n > 200: n = 200
+        all_dark_currents = np.empty(n)
+        for i in range(n):
+            all_dark_currents[i] = np.percentile(
+                self.reader.read(i, self.channel),
+                5
+            )
+        self.dark_current_threshold = np.median(all_dark_currents)
+        print('Dark current threshold is {}.'.format(self.dark_current_threshold))
+        
     def compute_threshold(self):
         # Compute error threshold for rejecting aligments. We generate a
         # distribution of error scores for many known non-overlapping image
