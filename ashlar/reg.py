@@ -697,6 +697,9 @@ class EdgeAligner(object):
     def debug(self, t1, t2, min_size=None):
         shift, _ = self._register(t1, t2, min_size)
         its, o1, o2 = self.overlap(t1, t2, min_size)
+        if bool(self.dark_current_threshold):
+            o1 = apply_noise(o1, self.dark_current_threshold)
+            o2 = apply_noise(o2, self.dark_current_threshold)
         w1 = whiten(o1, self.filter_sigma)
         w2 = whiten(o2, self.filter_sigma)
         corr = np.fft.fftshift(np.abs(np.fft.ifft2(
