@@ -439,7 +439,6 @@ class EdgeAligner(object):
         self.build_spanning_tree()
         self.calculate_positions()
         self.fit_model()
-        self.constrain_positions()
         self.report_pure_prediction_tiles()
 
     def check_overlaps(self):
@@ -536,9 +535,22 @@ class EdgeAligner(object):
         if self.verbose:
             print()
         self.all_errors = np.array([x[1] for x in self._cache.values()])
+        all_shifts = []
         # Set error values above the threshold to infinity.
         for k, v in self._cache.items():
             if v[1] > self.max_error:
+                self._cache[k] = (v[0], np.inf)
+            else:
+                all_shifts += [v[0]]
+        # Constrain local shift using Tukey method. Row and column shfts are 
+        # considered independently.  
+        all_shifts = np.array(all_shifts)
+        q1r, q3r = np.percentile(all_shifts[..., 0], [25, 75])
+        q1c, q3c = np.percentile(all_shifts[..., 1], [25, 75])
+        r_min, r_max = q1r - 1.5 * (q3r - q1r), q3r + 1.5 * (q3r - q1r)
+        c_min, c_max = q1c - 1.5 * (q3c - q1c), q3r + 1.5 * (q3c - q1c)
+        for k, v in self._cache.items():
+            if not (r_min < v[0][0] < r_max and c_min < v[0][1] < c_max):
                 self._cache[k] = (v[0], np.inf)
 
     def build_spanning_tree(self):
@@ -605,23 +617,8 @@ class EdgeAligner(object):
             for tiles in cp
         ]
 
-    def constrain_positions(self):
-        predictions = self.lr.predict(self.metadata.positions)
-        distances = np.linalg.norm(predictions - self.positions, axis=1)
-        # Only do stats on the non-predicted positions
-        non_predicted = np.ones(self.metadata.num_images).astype(bool)
-        non_predicted[self.pure_prediction_tiles_idxs] = False
-        q1, q3 = np.percentile(distances[non_predicted], [25, 75])
-        iqr = q3 - q1
-        lower_bound, upper_bound = [q1 - 1.5 * iqr, q3 + 1.5 * iqr]
-        outliers = np.any([distances > upper_bound, distances < lower_bound], axis=0)
-        self.positions[outliers] = predictions[outliers]
-        self.outlier_tiles, = outliers.nonzero()
-        self.centers = self.positions + self.metadata.size / 2
-
     def report_pure_prediction_tiles(self):
         components = list(nx.connected_component_subgraphs(self.spanning_tree))
-        self.pure_prediction_tiles_idxs += self.outlier_tiles.tolist() 
         self.connected_tiles_mask = np.zeros(self.metadata.num_images).reshape(-1, 1)
         for cp in components:
             self.connected_tiles_mask[sorted(cp)] = sorted(cp)[0]
