@@ -739,6 +739,7 @@ class LayerAligner(object):
         self.cycle_offset = thumbnail.calculate_cycle_offset(
             self.reference_aligner.reader, self.reader
         )
+        self.cycle_offset = [-10, -10]
         self.corrected_nominal_positions = self.metadata.positions + self.cycle_offset
         reference_positions = self.reference_aligner.metadata.positions
         dist = scipy.spatial.distance.cdist(reference_positions,
