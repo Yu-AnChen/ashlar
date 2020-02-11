@@ -479,6 +479,8 @@ class EdgeAligner(object):
             warn_data("Some neighboring tiles have zero overlap.")
 
     def compute_threshold(self):
+        self.max_error = 1.5
+        return
         # Compute error threshold for rejecting aligments. We generate a
         # distribution of error scores for many known non-overlapping image
         # regions and take a certain percentile as the maximum allowable error.
