@@ -224,6 +224,7 @@ def process_single(
     )
     mosaic.run()
     num_channels += len(mosaic.channels)
+    del aligner_args['dark_current_threshold']
 
     for cycle, filepath in enumerate(filepaths[1:], 1):
         if not quiet:
