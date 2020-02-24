@@ -435,7 +435,8 @@ class EdgeAligner(object):
 
     def __init__(
         self, reader, channel=0, max_shift=15, false_positive_ratio=0.01,
-        filter_sigma=0.0, do_make_thumbnail=True, verbose=False
+        filter_sigma=0.0, do_make_thumbnail=True, dark_current_threshold=0.0,
+        verbose=False,
     ):
         self.reader = reader
         self.channel = channel
@@ -446,6 +447,7 @@ class EdgeAligner(object):
         self.false_positive_ratio = false_positive_ratio
         self.filter_sigma = filter_sigma
         self.do_make_thumbnail = do_make_thumbnail
+        self.dark_current_threshold = dark_current_threshold
         self._cache = {}
 
     neighbors_graph = neighbors_graph
@@ -550,6 +552,8 @@ class EdgeAligner(object):
                 sys.stdout.flush()
             img1 = self.reader.read(t1, self.channel)[offset1:offset1+w, :]
             img2 = self.reader.read(t2, self.channel)[offset2:offset2+w, :]
+            img1 = utils.apply_noise(img1, self.dark_current_threshold)
+            img2 = utils.apply_noise(img2, self.dark_current_threshold)
             _, errors[i] = utils.register(img1, img2, self.filter_sigma)
         if self.verbose:
             print()
@@ -656,6 +660,8 @@ class EdgeAligner(object):
 
     def _register(self, t1, t2, min_size):
         its, img1, img2 = self.overlap(t1, t2, min_size)
+        img1 = utils.apply_noise(img1, self.dark_current_threshold)
+        img2 = utils.apply_noise(img2, self.dark_current_threshold)
         # Account for padding, flipping the sign depending on the direction
         # between the tiles.
         p1, p2 = self.metadata.positions[[t1, t2]]
@@ -700,6 +706,8 @@ class EdgeAligner(object):
     def debug(self, t1, t2, min_size=None):
         shift, _ = self._register(t1, t2, min_size)
         its, o1, o2 = self.overlap(t1, t2, min_size)
+        o1 = utils.apply_noise(o1, self.dark_current_threshold)
+        o2 = utils.apply_noise(o2, self.dark_current_threshold)
         w1 = utils.whiten(o1, self.filter_sigma)
         w2 = utils.whiten(o2, self.filter_sigma)
         corr = np.fft.fftshift(np.abs(np.fft.ifft2(

@@ -54,6 +54,11 @@ def main(argv=sys.argv):
         help=('width in pixels of Gaussian filter to apply to images before'
               ' alignment; default is 0 which disables filtering')
     )
+    parser.add_argument(
+        '--dark-current-threshold', default=0.0, metavar='BACKGROUND',
+        help=('intensity cutoff that seperates background and tissue, manually'
+              ' set this value may improve stitching; default is 0')
+    )
     arg_f_default = 'cycle_{cycle}_channel_{channel}.tif'
     parser.add_argument(
         '-f', '--filename-format', dest='filename_format',
@@ -150,6 +155,7 @@ def main(argv=sys.argv):
     aligner_args['verbose'] = not args.quiet
     aligner_args['max_shift'] = args.maximum_shift
     aligner_args['filter_sigma'] = args.filter_sigma
+    aligner_args['dark_current_threshold'] = args.dark_current_threshold
 
     mosaic_args = {}
     if args.output_channels:
