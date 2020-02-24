@@ -186,6 +186,10 @@ def crop_like(img, target):
         img = img[:, :target.shape[1]]
     return img
 
+def apply_noise(img, cutoff):
+    output = img.copy()
+    output[img < cutoff] = (np.random.random(img.shape) * cutoff)[img < cutoff]
+    return output
 
 def convert(image, dtype, **kwargs):
     """
