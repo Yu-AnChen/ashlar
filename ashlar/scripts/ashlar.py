@@ -55,7 +55,7 @@ def main(argv=sys.argv):
               ' alignment; default is 0 which disables filtering')
     )
     parser.add_argument(
-        '--dark-current-threshold', default=0.0, metavar='BACKGROUND',
+        '--dark-current-threshold', type=float, default=0.0, metavar='BACKGROUND',
         help=('intensity cutoff that seperates background and tissue, manually'
               ' set this value may improve stitching; default is 0')
     )
