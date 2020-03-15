@@ -219,3 +219,9 @@ def imsave(fname, arr, **kwargs):
     else:
         kwargs['check_contrast'] = False
     return skimage.io.imsave(fname, arr, **kwargs)
+
+
+def scale_shape(shape, scale):
+    scaled_shape = np.array(shape).astype(np.float64)
+    scaled_shape *= scale
+    return tuple(scaled_shape.astype(np.int64))
