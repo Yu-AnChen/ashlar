@@ -271,6 +271,8 @@ def process_single(
         process_axis_flip(reader, flip_x, flip_y)
 
         cycle_scale = scales[cycle] / scales[0]
+        if cycle >= 8:
+            aligner_args['max_rotation_dev'] = 0.5
         if cycle_scale != 1:
             scaled_edge_aligner = ScaledEdgeAligner(edge_aligner, cycle_scale)
             layer_aligner = reg.LayerAligner(
