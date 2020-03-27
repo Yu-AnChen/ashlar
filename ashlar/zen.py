@@ -46,6 +46,7 @@ class ZenMetadata(reg.Metadata):
                         "Size for series %d, channel %d doesn't match"
                         " first image." % (series, channel)
                     )
+            path = path.replace('_z17c', '_z08c')
             self.image_paths[series, channel] = path
             self._num_channels = max(self._num_channels, channel + 1)
         positions = [pos for series, pos in sorted(positions_map.items())]
