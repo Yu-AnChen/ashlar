@@ -460,7 +460,7 @@ class EdgeAligner(object):
         self.fit_model()
 
     def make_thumbnail(self):
-        if not self.do_make_thumbnail:
+        if not self.do_make_thumbnail or hasattr(self.reader, 'thumbnail'):
             return
         self.reader.thumbnail = thumbnail.make_thumbnail(
             self.reader, channel=self.channel
@@ -759,6 +759,8 @@ class LayerAligner(object):
         self.calculate_positions()
 
     def make_thumbnail(self):
+        if hasattr(self.reader, 'thumbnail'):
+            return
         self.reader.thumbnail = thumbnail.make_thumbnail(
             self.reader, channel=self.channel
         )
