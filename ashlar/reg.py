@@ -436,7 +436,7 @@ def neighbors_graph(aligner):
 class EdgeAligner(object):
 
     def __init__(
-        self, reader, channel=0, max_shift=15, false_positive_ratio=0.01,
+        self, reader, channel=0, max_shift=15, false_positive_ratio=0.25,
         filter_sigma=0.0, do_make_thumbnail=True, dark_current_threshold=0.0,
         verbose=False,
     ):
