@@ -2,6 +2,7 @@ import openslide
 import numpy as np
 import pathlib
 from ashlar import reg
+from ashlar import extract
 from PIL import Image
 from skimage import transform
 from skimage.color import hax_from_rgb, separate_stains
@@ -68,8 +69,11 @@ class SvsReader(reg.Reader):
             np.array(thumbnail.convert(mode='RGB')),
             hax_from_rgb
         )
-        self.aec_upper = hax_t[..., 1].max()
-        self.aec_lower = hax_t[..., 1].min()
+        cmyk_t = extract.imagej_rgb2cmyk(
+            np.array(thumbnail.convert(mode='RGB'))
+        )
+        self.aec_upper = np.sum(cmyk_t[1:3], axis=0).max()
+        self.aec_lower = 0
         self.hem_upper = hax_t[..., 0].max()
         self.hem_lower = hax_t[..., 0].min()
         self.thumbnail = np.array(
@@ -103,16 +107,18 @@ class SvsReader(reg.Reader):
             )[..., c - 1]
         elif c in [4, 5]:
             # return [AEC, HEM] image
-            hax = separate_stains(
-                np.array(img_subpixel.convert(mode='RGB')),
-                hax_from_rgb
-            )
             if c == 4:
-                return rescale_intensity(
-                    hax[..., 1], in_range=(self.aec_lower, self.aec_upper),
-                    out_range=(0, 1)
+                cmyk = extract.imagej_rgb2cmyk(
+                    np.array(img_subpixel.convert(mode='RGB'))
+                )
+                return extract.cmyk2marker_int(
+                    cmyk, self.aec_lower, self.aec_upper
                 )
             elif c == 5:
+                hax = separate_stains(
+                    np.array(img_subpixel.convert(mode='RGB')),
+                    hax_from_rgb
+                )
                 return rescale_intensity(
                     hax[..., 0], in_range=(self.hem_lower, self.hem_upper),
                     out_range=(0, 1)
