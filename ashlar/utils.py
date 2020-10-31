@@ -23,6 +23,13 @@ def whiten(img, sigma):
     return output
 
 
+def apply_noise(img, cutoff_lower, cutoff_upper):
+    output = img.copy()
+    mask = (img <= cutoff_lower) | (img >= cutoff_upper)
+    output[mask] = (np.random.random(img.shape) * cutoff_lower)[mask]
+    return output
+
+
 def register(img1, img2, sigma, upsample=10):
     img1w = whiten(img1, sigma)
     img2w = whiten(img2, sigma)

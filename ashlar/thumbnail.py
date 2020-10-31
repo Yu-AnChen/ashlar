@@ -11,7 +11,7 @@ def make_thumbnail(reader, channel=0, scale=0.05):
     positions = metadata.positions - metadata.origin
     coordinate_max = (positions + metadata.size).max(axis=0)
     mshape = ((coordinate_max + 1) * scale).astype(int)
-    mosaic = np.zeros(mshape, dtype=np.uint16)
+    mosaic = np.zeros(mshape, dtype=reader.metadata.pixel_dtype)
     total = reader.metadata.num_images
     for i in range(total):
         sys.stdout.write("\r    assembling thumbnail %d/%d" % (i + 1, total))
