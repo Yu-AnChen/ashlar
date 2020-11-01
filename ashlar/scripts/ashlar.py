@@ -54,6 +54,12 @@ def main(argv=sys.argv):
         help=('width in pixels of Gaussian filter to apply to images before'
               ' alignment; default is 0 which disables filtering')
     )
+    parser.add_argument(
+        '-i', '--intensity-inlier-percentiles', type=float, default=(0., 100.),
+        nargs=2, metavar='PERCENTILE',
+        help=('pixel intensity outside of specified percentiles will be replaced'
+              ' with random noise; default is 0.0 100.0')
+    )
     arg_f_default = 'cycle_{cycle}_channel_{channel}.tif'
     parser.add_argument(
         '-f', '--filename-format', dest='filename_format',
@@ -144,12 +150,21 @@ def main(argv=sys.argv):
             return 1
         if len(dfp_paths) == 1:
             dfp_paths = dfp_paths * len(filepaths)
+    
+    intensity_inlier_percentiles = tuple(sorted(args.intensity_inlier_percentiles))
+    if intensity_inlier_percentiles[0] < 0 or intensity_inlier_percentiles[1] > 100:
+        print_error(
+            "Inlier range must be within 0 to 100 but got {}"
+                .format(args.intensity_inlier_percentiles)
+        )
+        return 1
 
     aligner_args = {}
     aligner_args['channel'] = args.align_channel
     aligner_args['verbose'] = not args.quiet
     aligner_args['max_shift'] = args.maximum_shift
     aligner_args['filter_sigma'] = args.filter_sigma
+    aligner_args['intensity_inlier_percentiles'] = intensity_inlier_percentiles
 
     mosaic_args = {}
     if args.output_channels:
@@ -219,6 +234,7 @@ def process_single(
     mosaic.run()
     num_channels += len(mosaic.channels)
 
+    del aligner_args['intensity_inlier_percentiles']
     for cycle, filepath in enumerate(filepaths[1:], 1):
         if not quiet:
             print('Cycle %d:' % cycle)

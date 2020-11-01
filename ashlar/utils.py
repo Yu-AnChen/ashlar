@@ -23,10 +23,16 @@ def whiten(img, sigma):
     return output
 
 
-def apply_noise(img, cutoff_lower, cutoff_upper):
+def apply_noise(img, cutoff_lower, cutoff_upper, sd):
     output = img.copy()
-    mask = (img <= cutoff_lower) | (img >= cutoff_upper)
-    output[mask] = (np.random.random(img.shape) * cutoff_lower)[mask]
+    if sd != 0:
+        rgn = np.random.default_rng()
+        m1 = img <= cutoff_lower
+        if m1.sum() > 0:
+            output[m1] = rgn.normal(cutoff_lower + 3*sd, sd, m1.sum())
+        m2 = img >= cutoff_upper
+        if m2.sum() > 0:
+            output[m2] = rgn.normal(cutoff_upper - 3*sd, sd, m2.sum())
     return output
 
 

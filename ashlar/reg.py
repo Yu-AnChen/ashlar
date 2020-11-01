@@ -456,7 +456,7 @@ class EdgeAligner(object):
     def __init__(
         self, reader, channel=0, max_shift=15, false_positive_ratio=0.01,
         randomize=False, filter_sigma=0.0, do_make_thumbnail=True, verbose=False,
-        sensible_range=(0, 100)
+        intensity_inlier_percentiles=(0, 100)
     ):
         self.channel = channel
         self.reader = CachingReader(reader, self.channel)
@@ -468,14 +468,14 @@ class EdgeAligner(object):
         self.randomize = randomize
         self.filter_sigma = filter_sigma
         self.do_make_thumbnail = do_make_thumbnail
-        self.sensible_range = sensible_range
+        self.intensity_inlier_percentiles = intensity_inlier_percentiles
         self._cache = {}
 
     neighbors_graph = neighbors_graph
 
     def run(self):
         self.make_thumbnail()
-        self.get_sensible_limits()
+        self.get_intensity_inlier_bounds()
         self.check_overlaps()
         self.compute_threshold()
         self.register_all()
@@ -490,19 +490,29 @@ class EdgeAligner(object):
             self.reader, channel=self.channel
         )
 
-    def get_sensible_limits(self):
-        if np.all(self.sensible_range == (0, 100)):
-            dtype = self.metadata.pixel_dtype
-            self.sensible_limits = (np.iinfo(dtype).min, np.iinfo(dtype).max)
+    def get_intensity_inlier_bounds(self):
+        dtype = self.metadata.pixel_dtype
+        max_bounds = (np.iinfo(dtype).min - 1, np.iinfo(dtype).max + 1)
+        if np.all(self.intensity_inlier_percentiles == (0, 100)):
+            self.intensity_inlier_bounds = max_bounds
+            self.noise_sd = 0
             return
         if not hasattr(self.reader, 'thumbnail'):
             self.do_make_thumbnail = True
             self.make_thumbnail()
         thumbnail = self.reader.thumbnail
-        low, high = self.sensible_range
-        self.sensible_limits = (
+        low, high = self.intensity_inlier_percentiles
+        self.intensity_inlier_bounds = [
             np.percentile(thumbnail, low), np.percentile(thumbnail, high)
-        )
+        ]
+        if low == 0: self.intensity_inlier_bounds[0] = max_bounds[0]
+        if high == 100: self.intensity_inlier_bounds[1] = max_bounds[100]
+        self.intensity_inlier_bounds = tuple(self.intensity_inlier_bounds)
+        self.noise_sd = (np.percentile(thumbnail, 1) / 3).astype(dtype)
+        percentile = 2
+        while self.noise_sd == 0:
+            self.noise_sd = (np.percentile(thumbnail, percentile) / 3).astype(dtype)
+            percentile += 1
 
     def check_overlaps(self):
         # This might be better addressed by removing the +1 from the
@@ -591,9 +601,9 @@ class EdgeAligner(object):
                 sys.stdout.flush()
             img1 = self.reader.read(t1, self.channel)[offset1:offset1+w, :]
             img2 = self.reader.read(t2, self.channel)[offset2:offset2+w, :]
-            if not np.all(self.sensible_range == (0, 100)):
-                img1 = utils.apply_noise(img1, *self.sensible_limits)
-                img2 = utils.apply_noise(img2, *self.sensible_limits)
+            if not np.all(self.intensity_inlier_percentiles == (0, 100)):
+                img1 = utils.apply_noise(img1, *self.intensity_inlier_bounds, self.noise_sd)
+                img2 = utils.apply_noise(img2, *self.intensity_inlier_bounds, self.noise_sd)
             _, errors[i] = utils.register(img1, img2, self.filter_sigma, upsample=1)
         if self.verbose:
             print()
@@ -716,9 +726,9 @@ class EdgeAligner(object):
 
     def _register(self, t1, t2, min_size=0):
         its, img1, img2 = self.overlap(t1, t2, min_size)
-        if not np.all(self.sensible_range == (0, 100)):
-            img1 = utils.apply_noise(img1, *self.sensible_limits)
-            img2 = utils.apply_noise(img2, *self.sensible_limits)
+        if not np.all(self.intensity_inlier_percentiles == (0, 100)):
+            img1 = utils.apply_noise(img1, *self.intensity_inlier_bounds, self.noise_sd)
+            img2 = utils.apply_noise(img2, *self.intensity_inlier_bounds, self.noise_sd)
         # Account for padding, flipping the sign depending on the direction
         # between the tiles.
         p1, p2 = self.metadata.positions[[t1, t2]]
@@ -764,9 +774,9 @@ class EdgeAligner(object):
     def debug(self, t1, t2, min_size=0):
         shift, _ = self._register(t1, t2, min_size)
         its, o1, o2 = self.overlap(t1, t2, min_size)
-        if not np.all(self.sensible_range == (0, 100)):
-            o1 = utils.apply_noise(o1, *self.sensible_limits)
-            o2 = utils.apply_noise(o2, *self.sensible_limits)
+        if not np.all(self.intensity_inlier_percentiles == (0, 100)):
+            o1 = utils.apply_noise(o1, *self.intensity_inlier_bounds, self.noise_sd)
+            o2 = utils.apply_noise(o2, *self.intensity_inlier_bounds, self.noise_sd)
         w1 = utils.whiten(o1, self.filter_sigma)
         w2 = utils.whiten(o2, self.filter_sigma)
         corr = scipy.fft.fftshift(np.abs(scipy.fft.ifft2(
