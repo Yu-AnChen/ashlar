@@ -781,7 +781,7 @@ class EdgeAligner(object):
 class LayerAligner(object):
 
     def __init__(self, reader, reference_aligner, channel=None, max_shift=15,
-                 filter_sigma=0.0, verbose=False):
+                 filter_sigma=0.0, rescale_scale=1.0, verbose=False):
         self.reader = reader
         self.reference_aligner = reference_aligner
         if channel is None:
@@ -791,6 +791,7 @@ class LayerAligner(object):
         self.max_shift = max_shift
         self.max_shift_pixels = self.max_shift / self.metadata.pixel_size
         self.filter_sigma = filter_sigma
+        self.rescale_scale = rescale_scale
         self.verbose = verbose
         # FIXME Still a bit muddled here on the use of metadata positions vs.
         # corrected positions from the reference aligner. We probably want to
@@ -890,6 +891,16 @@ class LayerAligner(object):
         its, ref_img, img = self.overlap(t)
         if np.any(np.array(its.shape) == 0):
             return (0, 0), np.inf
+        if self.rescale_scale != 1.0:
+            dtype = img.dtype
+            img = skimage.transform.rescale(
+                img, self.rescale_scale,
+                multichannel=False, anti_aliasing=True, preserve_range=True
+            ).astype(dtype)
+            if self.rescale_scale < 1:
+                ref_img = utils.crop_like(ref_img, img)
+            else:
+                img = utils.crop_like(img, ref_img)
         shift, error = utils.register(ref_img, img, self.filter_sigma)
         # We don't use padding and thus can skip the math to account for it.
         assert (its.padding == 0).all(), "Unexpected non-zero padding"
@@ -1084,6 +1095,7 @@ class Mosaic(object):
                     sys.stdout.flush()
                 tile_image = self.aligner.reader.read(c=channel, series=tile)
                 tile_image = self.correct_illumination(tile_image, channel)
+                tile_image = self.rescale_size(tile_image)
                 if debug:
                     color_channel = node_colors[tile]
                     rgb_image = np.zeros(tile_image.shape + (3,),
@@ -1140,6 +1152,15 @@ class Mosaic(object):
             img -= self.dfp[channel, ...]
             img /= self.ffp[channel, ...]
             img.clip(0, 1, out=img)
+        return img
+
+    def rescale_size(self, img):
+        if hasattr(self.aligner, 'rescale_scale') and self.aligner.rescale_scale != 1.0:
+            dtype = img.dtype
+            img = skimage.transform.rescale(
+                img, self.aligner.rescale_scale,
+                multichannel=False, anti_aliasing=True, preserve_range=True
+            ).astype(dtype)
         return img
 
 

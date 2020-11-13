@@ -85,6 +85,12 @@ def main(argv=sys.argv):
               ' be one common file for all cycles or one file for each cycle')
     )
     parser.add_argument(
+        '--rescale-pixel-size', type=float, metavar='SCALE', nargs='*',
+        help=('rescale the size of each tile with SCALE when registering; if'
+              ' specified must be one SCALE for each cycle and the first one'
+              ' must be 1.0')
+    )
+    parser.add_argument(
         '--plates', default=False, action='store_true',
         help='enable plate mode for HTS data'
     )
@@ -144,6 +150,14 @@ def main(argv=sys.argv):
             return 1
         if len(dfp_paths) == 1:
             dfp_paths = dfp_paths * len(filepaths)
+    scales = args.rescale_pixel_size
+    if scales:
+        if len(scales) not in (0, len(filepaths)):
+            print_error(
+                "Wrong number of pixel-size scales. Must {}"
+                " (number of input files)".format(len(filepaths))
+            )
+            return 1
 
     aligner_args = {}
     aligner_args['channel'] = args.align_channel
@@ -170,7 +184,7 @@ def main(argv=sys.argv):
             mosaic_path_format = str(output_path / args.filename_format)
             return process_single(
                 filepaths, mosaic_path_format, args.flip_x, args.flip_y,
-                ffp_paths, dfp_paths, aligner_args, mosaic_args, args.pyramid,
+                ffp_paths, dfp_paths, scales, aligner_args, mosaic_args, args.pyramid,
                 args.quiet
             )
     except ProcessingError as e:
@@ -180,7 +194,7 @@ def main(argv=sys.argv):
 
 def process_single(
     filepaths, mosaic_path_format, flip_x, flip_y, ffp_paths, dfp_paths,
-    aligner_args, mosaic_args, pyramid, quiet, plate_well=None
+    scales, aligner_args, mosaic_args, pyramid, quiet, plate_well=None
 ):
 
     output_path_0 = format_cycle(mosaic_path_format, 0)
@@ -225,6 +239,8 @@ def process_single(
             print('    reading %s' % filepath)
         reader = build_reader(filepath, plate_well=plate_well)
         process_axis_flip(reader, flip_x, flip_y)
+        if scales:
+            aligner_args.update(rescale_scale=scales[cycle])
         layer_aligner = reg.LayerAligner(reader, edge_aligner, **aligner_args)
         layer_aligner.run()
         mosaic_args_final = mosaic_args.copy()
