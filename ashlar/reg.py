@@ -429,6 +429,7 @@ class CachingReader(Reader):
 # )
 
 
+import sklearn.neighbors as sn
 @property
 def neighbors_graph(aligner):
     """Return graph of neighboring (overlapping) tiles.
@@ -440,14 +441,16 @@ def neighbors_graph(aligner):
     # FIXME: This should properly test for overlap, possibly via
     # intersection of bounding rectangles.
     if not hasattr(aligner, '_neighbors_graph'):
-        pdist = scipy.spatial.distance.pdist(aligner.metadata.positions,
-                                             metric='cityblock')
-        sp = scipy.spatial.distance.squareform(pdist)
-        max_distance = aligner.metadata.size.max() + 1
-        edges = zip(*np.nonzero((sp > 0) & (sp < max_distance)))
-        graph = nx.from_edgelist(edges)
-        graph.add_nodes_from(range(aligner.metadata.num_images))
-        aligner._neighbors_graph = graph
+        # TEMP: Switch to KNN as aworkaround for orion metadata bug
+        nbrs = sn.NearestNeighbors(n_neighbors=5, algorithm='brute').fit(aligner.metadata.positions)
+        nbr_idx = nbrs.kneighbors(aligner.metadata.positions[:])[-1]
+
+        nbr_pairs = [(i[0], j) for i in nbr_idx for j in i[1:]]
+        nbr_pairs = np.sort(nbr_pairs, axis=1)
+        nbr_pairs = np.unique(nbr_pairs, axis=0)
+        nbr_graph = nx.from_edgelist(nbr_pairs)
+        nbr_graph.add_nodes_from(range(aligner.metadata.num_images))
+        aligner._neighbors_graph = nbr_graph
     return aligner._neighbors_graph
 
 
