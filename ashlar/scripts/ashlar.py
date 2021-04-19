@@ -333,7 +333,7 @@ def process_position_overwrite(reader, position_overwrite):
     metadata = reader.metadata
     metadata._positions = utils.infer_positions(
         reader, overlap=position_overwrite['overlap'],
-        n_rows=nrows, n_cols=n_cols
+        n_rows=n_rows, n_cols=n_cols
     )
 
 
