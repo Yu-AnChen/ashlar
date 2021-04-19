@@ -241,8 +241,8 @@ def best_fit_grid(positions, posible_grid_spec):
         Affine.estimate(positions, idxs)
         all_residuals.append(Affine.residuals(positions, idxs))
         # all_residuals.append(Affine)
-    all_residuals = np.array(all_residuals)
-    return all_residuals[np.argmin(all_residuals)]
+    all_residuals = np.array(all_residuals).sum(axis=1)
+    return posible_grid_spec[np.argmin(all_residuals)]
 
 
 def synthetic_position(n_rows, n_cols, tile_shape=None, overlap=None):
