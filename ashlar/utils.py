@@ -268,6 +268,7 @@ def infer_positions(reader, overlap=None, n_rows=None, n_cols=None):
         n_rows, n_cols = best_fit_grid(
             metadata.positions, possible_grid(metadata.num_images)
         )
+        print(f'n_rows: {n_rows}, ncols: {n_cols}')
     return synthetic_position(
         n_rows, n_cols, metadata.size, overlap
     )

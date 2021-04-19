@@ -327,12 +327,12 @@ def process_axis_flip(reader, flip_x, flip_y):
 
 
 def process_position_overwrite(reader, position_overwrite):
-    if position_overwrite.overwrite == False:
+    if position_overwrite['overwrite'] == False:
         return
-    n_rows, n_cols = position_overwrite.n_rows_n_cols
+    n_rows, n_cols = position_overwrite['n_rows_n_cols']
     metadata = reader.metadata
     metadata._positions = utils.infer_positions(
-        reader, overlap=position_overwrite.overlap,
+        reader, overlap=position_overwrite['overlap'],
         n_rows=nrows, n_cols=n_cols
     )
 
