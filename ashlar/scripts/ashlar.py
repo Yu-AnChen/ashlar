@@ -230,7 +230,7 @@ def process_single(
         print('    reading %s' % filepaths[0])
     reader = build_reader(filepaths[0], plate_well=plate_well)
     process_axis_flip(reader, flip_x, flip_y)
-    process_position_overwrite(reader, position_overwrite)
+    process_position_overwrite(reader, position_overwrite, flip_x, flip_y)
     ea_args = aligner_args.copy()
     if len(filepaths) == 1:
         ea_args['do_make_thumbnail'] = False
@@ -326,15 +326,19 @@ def process_axis_flip(reader, flip_x, flip_y):
     metadata._positions *= [sy, sx]
 
 
-def process_position_overwrite(reader, position_overwrite):
+def process_position_overwrite(reader, position_overwrite, flip_x, flip_y):
     if position_overwrite['overwrite'] == False:
         return
     n_rows, n_cols = position_overwrite['n_rows_n_cols']
     metadata = reader.metadata
+    _ = metadata.positions
     metadata._positions = utils.infer_positions(
         reader, overlap=position_overwrite['overlap'],
         n_rows=n_rows, n_cols=n_cols
     )
+    sx = -1 if flip_x else 1
+    sy = 1 if flip_y else -1
+    metadata._positions *= [sy, sx]
 
 
 readers = {
