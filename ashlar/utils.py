@@ -4,6 +4,7 @@ import skimage.feature
 import skimage.io
 import skimage.restoration.uft
 import skimage.morphology
+import skimage.transform
 import skimage.util
 import skimage.util.dtype
 import scipy.ndimage
@@ -216,3 +217,58 @@ def imsave(fname, arr, **kwargs):
     del kwargs["check_contrast"]
     import skimage.external.tifffile
     skimage.external.tifffile.imsave(fname, arr, **kwargs)
+
+
+def possible_grid(n_points):
+    n_points = np.array(n_points, np.int)
+    search_max = np.ceil(np.sqrt(n_points)).astype(np.int) + 1
+    possible_row = np.arange(2, search_max)
+    area = np.ones_like(possible_row) * n_points
+    passed = (area % possible_row) == 0
+    passed_row = possible_row[passed]
+    passed_col = (n_points / passed_row).astype(np.int)
+    possible = np.vstack((passed_row, passed_col)).T
+    possible_all = np.vstack((possible, np.fliplr(possible)))
+    return np.unique(possible_all, axis=0)
+
+
+def best_fit_grid(positions, posible_grid_spec):
+    all_residuals = []
+    for spec in posible_grid_spec:
+        Affine = skimage.transform.AffineTransform()
+        idxs = np.unravel_index(range(positions.shape[0]), spec)
+        idxs = np.array(idxs).T
+        Affine.estimate(positions, idxs)
+        all_residuals.append(Affine.residuals(positions, idxs))
+        # all_residuals.append(Affine)
+    all_residuals = np.array(all_residuals)
+    return all_residuals[np.argmin(all_residuals)]
+
+
+def synthetic_position(n_rows, n_cols, tile_shape=None, overlap=None):
+    row_coor, col_coor = np.mgrid[:n_rows, :n_cols].astype(float)
+    if tile_shape is not None:
+        if overlap is None:
+            overlap = 0
+        row_coor *= tile_shape[0] - overlap
+        col_coor *= tile_shape[1] - overlap
+    return np.vstack((row_coor.flatten(), col_coor.flatten())).T
+
+
+def synthetic_position_random(n_rows, n_cols):
+    row_coor, col_coor = np.mgrid[:n_rows, :n_cols].astype(float)
+    row_coor += np.random.normal(0, 0.1, row_coor.shape)
+    col_coor += np.random.normal(0, 0.3, row_coor.shape)
+    return np.vstack((row_coor.flatten(), col_coor.flatten())).T
+
+
+def infer_positions(reader, overlap=None, n_rows=None, n_cols=None):
+    metadata = reader.metadata
+    if n_rows is None and n_cols is None:
+        n_rows, n_cols = best_fit_grid(
+            metadata.positions, possible_grid(metadata.num_images)
+        )
+    return synthetic_position(
+        n_rows, n_cols, metadata.size, overlap
+    )
+    

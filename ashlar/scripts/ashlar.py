@@ -6,6 +6,7 @@ import pathlib
 import blessed
 from .. import __version__ as VERSION
 from .. import reg
+from .. import utils
 from ..reg import PlateReader, BioformatsReader
 from ..filepattern import FilePatternReader
 from ..fileseries import FileSeriesReader
@@ -66,6 +67,22 @@ def main(argv=sys.argv):
         '--pyramid', default=False, action='store_true',
         help='write output as a single pyramidal TIFF'
     )
+    parser.add_argument(
+        '--overwrite-positions', default=False, action='store_true',
+        help=('use user provided overlap information (--overlap) and'
+              ' optional --n-rows-n-cols in replace of the metadata'
+              ' stage position'
+             )
+    )
+    parser.add_argument(
+        '--overlap', type=int, default=None, metavar='OVERLAP',
+        help='number of pixels overlap in both direction'
+    )
+    parser.add_argument(
+        '--n-rows-n-cols', nargs=2, type=int, default=[None, None],
+        metavar='ROWSCOLS',
+        help='number of rows in one imaging round'
+    )
     # Implement default-value logic ourselves so we can detect when the user
     # has explicitly set a value.
     tile_size_default = 1024
@@ -123,6 +140,18 @@ def main(argv=sys.argv):
         # Implement default value logic as mentioned in argparser setup above.
         args.tile_size = tile_size_default
 
+    position_overwrite = dict(overwrite=False)
+    if args.overwrite_positions == True:
+        if args.overlap is None:
+            print_error("When passing --overwrite-positions, --overlap must also be provided")
+            return 1
+        position_overwrite.update(dict(
+            overwrite=True,
+            overlap=args.overlap,
+            n_rows_n_cols=args.n_rows_n_cols
+        ))       
+        
+
     ffp_paths = args.ffp
     if ffp_paths:
         if len(ffp_paths) not in (0, 1, len(filepaths)):
@@ -171,7 +200,7 @@ def main(argv=sys.argv):
             return process_single(
                 filepaths, mosaic_path_format, args.flip_x, args.flip_y,
                 ffp_paths, dfp_paths, aligner_args, mosaic_args, args.pyramid,
-                args.quiet
+                position_overwrite, args.quiet
             )
     except ProcessingError as e:
         print_error(str(e))
@@ -180,7 +209,7 @@ def main(argv=sys.argv):
 
 def process_single(
     filepaths, mosaic_path_format, flip_x, flip_y, ffp_paths, dfp_paths,
-    aligner_args, mosaic_args, pyramid, quiet, plate_well=None
+    aligner_args, mosaic_args, pyramid, position_overwrite, quiet, plate_well=None
 ):
 
     output_path_0 = format_cycle(mosaic_path_format, 0)
@@ -201,6 +230,7 @@ def process_single(
         print('    reading %s' % filepaths[0])
     reader = build_reader(filepaths[0], plate_well=plate_well)
     process_axis_flip(reader, flip_x, flip_y)
+    process_position_overwrite(reader, position_overwrite)
     ea_args = aligner_args.copy()
     if len(filepaths) == 1:
         ea_args['do_make_thumbnail'] = False
@@ -225,6 +255,7 @@ def process_single(
             print('    reading %s' % filepath)
         reader = build_reader(filepath, plate_well=plate_well)
         process_axis_flip(reader, flip_x, flip_y)
+        process_position_overwrite(reader, position_overwrite)
         layer_aligner = reg.LayerAligner(reader, edge_aligner, **aligner_args)
         layer_aligner.run()
         mosaic_args_final = mosaic_args.copy()
@@ -293,6 +324,17 @@ def process_axis_flip(reader, flip_x, flip_y):
     sx = -1 if flip_x else 1
     sy = -1 if flip_y else 1
     metadata._positions *= [sy, sx]
+
+
+def process_position_overwrite(reader, position_overwrite):
+    if position_overwrite.overwrite == False:
+        return
+    n_rows, n_cols = position_overwrite.n_rows_n_cols
+    metadata = reader.metadata
+    metadata._positions = utils.infer_positions(
+        reader, overlap=position_overwrite.overlap,
+        n_rows=nrows, n_cols=n_cols
+    )
 
 
 readers = {
