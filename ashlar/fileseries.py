@@ -58,6 +58,7 @@ class FileSeriesMetadata(reg.PlateMetadata):
         wells = set()
         series = set()
         channels = set()
+        zs = set()
         n = 0
         self.filename_components = {}
         for p in self.path.iterdir():
@@ -67,12 +68,14 @@ class FileSeriesMetadata(reg.PlateMetadata):
                 w = gd.get('well')
                 s = int(gd['series'])
                 c = gd.get('channel')
+                z = gd.get('z')
                 wells.add(w)
                 series.add(s)
                 channels.add(c)
-                self.filename_components[w, s, c] = gd
+                zs.add(z)
+                self.filename_components[w, s, c, z] = gd
                 n += 1
-        if len(self.filename_components) != len(wells) * len(series) * len(channels):
+        if len(self.filename_components) != len(wells) * len(series) * len(channels) * len(zs):
             raise Exception("Missing images detected")
         # Build sorted list of (well, series) tuples for all wells.
         self.all_series = sorted(set(
@@ -81,7 +84,8 @@ class FileSeriesMetadata(reg.PlateMetadata):
         self.well_map = dict(enumerate(sorted(wells)))
         self._actual_num_images = len(series) * len(wells)
         self.channel_map = dict(enumerate(sorted(channels)))
-        path = self.path / self.filename(0, 0)
+        self.z_map = dict(enumerate(sorted(zs, key=lambda x: int(x) if x != None else 0)))
+        path = self.path / self.filename(0, 0, 0)
         img = skimage.io.imread(str(path))
         self._tile_size = np.array(img.shape[:2])
         self._dtype = img.dtype
@@ -151,10 +155,11 @@ class FileSeriesMetadata(reg.PlateMetadata):
                 row = self.height - 1 - row
         return row, col
 
-    def filename(self, series, c):
+    def filename(self, series, c, z):
         well, series = self.all_series[self.active_series[series]]
         c = self.channel_map[c]
-        components = self.filename_components[well, series, c]
+        z = self.z_map[z]
+        components = self.filename_components[well, series, c, z]
         return self.pattern.format(**components)
 
 
@@ -177,10 +182,10 @@ class FileSeriesReader(reg.PlateReader):
         )
         self.metadata.set_active_plate_well(plate, well)
 
-    def read(self, series, c):
+    def read(self, series, c, z=0):
         # TODO: Address tension between non-plate and plate-aware modes
         # here and in Metadata class.
-        path = str(self.path / self.metadata.filename(series, c))
+        path = str(self.path / self.metadata.filename(series, c, z))
         kwargs = {}
         if self.metadata.multi_channel_tiles:
             kwargs['key'] = c
