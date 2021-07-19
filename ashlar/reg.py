@@ -1269,7 +1269,7 @@ def plot_edge_shifts(aligner, img=None, bounds=True, im_kwargs=None):
         im_kwargs = {}
     fig = plt.figure()
     ax = plt.gca()
-    draw_mosaic_image(ax, aligner, img, **im_kwargs)
+    draw_mosaic_image(ax, aligner.mosaic_shape, img, **im_kwargs)
     h, w = aligner.reader.metadata.size
     if bounds:
         # Bounding boxes denoting new tile positions.
@@ -1315,7 +1315,7 @@ def plot_edge_quality(
         nrows, ncols = 1, 1
     fig = plt.figure()
     ax = plt.subplot(nrows, ncols, 1)
-    draw_mosaic_image(ax, aligner, img, **im_kwargs)
+    draw_mosaic_image(ax, aligner.mosaic_shape, img, **im_kwargs)
     error = np.array([aligner._cache[tuple(sorted(e))][1]
                       for e in aligner.neighbors_graph.edges])
     # Manually center and scale data to 0-1, except infinity which is set to -1.
@@ -1343,7 +1343,7 @@ def plot_edge_quality(
     )
     if show_tree:
         ax = plt.subplot(nrows, ncols, 2)
-        draw_mosaic_image(ax, aligner, img, **im_kwargs)
+        draw_mosaic_image(ax, aligner.mosaic_shape, img, **im_kwargs)
         # Spanning tree with nodes at original tile positions.
         nx.draw(
             aligner.spanning_tree, ax=ax, with_labels=True,
@@ -1385,7 +1385,7 @@ def plot_layer_shifts(aligner, img=None, im_kwargs=None):
         im_kwargs = {}
     fig = plt.figure()
     ax = plt.gca()
-    draw_mosaic_image(ax, aligner, img, **im_kwargs)
+    draw_mosaic_image(ax, aligner.mosaic_shape, img, **im_kwargs)
     h, w = aligner.metadata.size
     # Bounding boxes denoting new tile positions.
     for xy in np.fliplr(aligner.positions):
@@ -1407,7 +1407,7 @@ def plot_layer_quality(
         im_kwargs = {}
     fig = plt.figure()
     ax = plt.gca()
-    draw_mosaic_image(ax, aligner, img, **im_kwargs)
+    draw_mosaic_image(ax, aligner.mosaic_shape, img, **im_kwargs)
 
     h, w = aligner.metadata.size
     positions, centers, shifts = aligner.positions, aligner.centers, aligner.shifts
@@ -1457,8 +1457,49 @@ def plot_layer_quality(
     ax.axis('off')
 
 
-def draw_mosaic_image(ax, aligner, img, **kwargs):
+def draw_mosaic_image(ax, mosaic_shape, img, **kwargs):
     if img is None:
         img = [[0]]
-    h, w = aligner.mosaic_shape
+    h, w = mosaic_shape
     ax.imshow(img, extent=(-0.5, w-0.5, h-0.5, -0.5), **kwargs)
+
+def plot_tile_positions(
+    aligner, img=None, annotate=True, im_kwargs=None
+):
+    if im_kwargs is None:
+        im_kwargs = {}
+    fig = plt.figure()
+    ax = plt.gca()
+
+    metadata = aligner.metadata
+    h, w = metadata.size
+    if hasattr(aligner, 'positions'):
+        positions = aligner.positions
+    else: positions = metadata.positions - metadata.origin
+
+    if not hasattr(aligner, 'mosaic_shape'):
+        mosaic_shape = positions.max(axis=0) + metadata.size
+    
+    draw_mosaic_image(ax, mosaic_shape, img, **im_kwargs)
+
+    # Checkerboard color of the bounding boxes
+    node_colors = nx.greedy_color(aligner.neighbors_graph)
+    color_index = [node_colors[i] for i in range(metadata.num_images)]
+    color_map = mcm.Dark2
+    for xy, c_idx in zip(np.fliplr(positions), color_index):
+        rect = mpatches.Rectangle(
+            xy, w, h, color=color_map(c_idx, alpha=0.5), fill=False, lw=2.5
+        )
+        ax.add_patch(rect)
+    
+    # Annotate tile numbering.
+    if annotate:
+        for idx, (x, y) in enumerate(np.fliplr(positions)):
+            text = plt.annotate(str(idx), (x+0.1*w, y+0.9*h), alpha=0.7)
+            # Add outline to text for better contrast in different background color.
+            text_outline = mpatheffects.Stroke(linewidth=1, foreground='#AAA')
+            text.set_path_effects(
+                [text_outline, mpatheffects.Normal()]
+            )
+
+    ax.axis('off')
