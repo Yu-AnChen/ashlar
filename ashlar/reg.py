@@ -249,6 +249,10 @@ class BioformatsMetadata(PlateMetadata):
         return self._metadata.getChannelCount(0)
 
     @property
+    def num_z_planes(self):
+        return self._reader.getSizeZ()
+
+    @property
     def num_plates(self):
         return self._metadata.getPlateCount()
 
@@ -391,9 +395,10 @@ class BioformatsReader(PlateReader):
         self.metadata = BioformatsMetadata(self.path)
         self.metadata.set_active_plate_well(plate, well)
 
-    def read(self, series, c):
+    def read(self, series, c, z=0):
         self.metadata._reader.setSeries(self.metadata.active_series[series])
-        index = self.metadata._reader.getIndex(0, c, 0)
+        # `_reader.getIndex(Z, C, T)`
+        index = self.metadata._reader.getIndex(z, c, 0)
         byte_array = self.metadata._reader.openBytes(index)
         dtype = self.metadata.pixel_dtype
         shape = self.metadata.tile_size(series)

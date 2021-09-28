@@ -18,9 +18,15 @@ def best_z_to_ome(
 ):
 
     def wrap(i):
+        if hasattr(reader.metadata, 'z_map'):
+            z_idxs = reader.metadata.z_map.keys()
+        elif hasattr(reader.metadata, 'num_z_planes'):
+            z_idxs = range(reader.metadata.num_z_planes)
+        else:
+            raise NotImplementedError
         return [
             whiten_norm(reader.read(i, 0, z=z), 1)
-            for z in reader.metadata.z_map.keys()
+            for z in z_idxs
         ]
     edgy_scores = np.array(
         Parallel(verbose=1, n_jobs=-1)(
@@ -28,7 +34,7 @@ def best_z_to_ome(
             for i in range(reader.metadata.num_images)
         )
     )
-    
+
     # edgy_scores = np.array([
     #     [
     #         whiten_norm(reader.read(i, 0, z=z), 1) 
@@ -36,14 +42,15 @@ def best_z_to_ome(
     #     ]
     #     for i in range(reader.metadata.num_images)
     # ])
-    
+
     tile_best_z = np.argmax(edgy_scores, axis=1)
     print(tile_best_z)
 
     pixel_size = reader.metadata.pixel_size
+    input_path = pathlib.Path(reader.path)
     output_dir = pathlib.Path(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
-    output_path = output_dir / f'{reader.path.name}.ome.tif'
+    output_path = output_dir / f'{input_path.name}.ome.tif'
 
     print('Write to', str(output_path))
     with tifffile.TiffWriter(output_path, bigtiff=True) as tif:
@@ -51,19 +58,21 @@ def best_z_to_ome(
             reader.metadata.positions, tile_best_z, range(reader.metadata.num_images)
         ):
             img = np.array([
-                reader.read(s, c, z)
+                reader.read(s, c, int(z))
                 for c in range(reader.metadata.num_channels)
             ])
-            positions = {
-                'Pixels': {
-                    'PhysicalSizeX': pixel_size,
-                    'PhysicalSizeXUnit': 'µm',
-                    'PhysicalSizeY': pixel_size,
-                    'PhysicalSizeYUnit': 'µm'
-                },
-                'Plane': {
-                    'PositionX': [p[1]*pixel_size]*img.shape[0],
-                    'PositionY': [p[0]*pixel_size]*img.shape[0]
+
+            if not np.all(img == 0):
+                positions = {
+                    'Pixels': {
+                        'PhysicalSizeX': pixel_size,
+                        'PhysicalSizeXUnit': 'µm',
+                        'PhysicalSizeY': pixel_size,
+                        'PhysicalSizeYUnit': 'µm'
+                    },
+                    'Plane': {
+                        'PositionX': [p[1]*pixel_size]*img.shape[0],
+                        'PositionY': [p[0]*pixel_size]*img.shape[0]
+                    }
                 }
-            }
-            tif.write(img, metadata=positions)
+                tif.write(img, metadata=positions)

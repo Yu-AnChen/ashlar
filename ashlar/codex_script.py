@@ -1,6 +1,7 @@
 import pathlib
 from . import fileseries
 from . import codex_best_z
+from . import reg
 
 
 def run_1():
@@ -44,4 +45,17 @@ def run_2():
         codex_best_z.best_z_to_ome(
             reader=reader,
             output_dir=r'V:\YC-20210607-codex_penn_oldridge\mcmicro\FFPE_TonsilNewStageTest_2020-09-02\raw'
+        )
+
+
+def run_3():
+    input_dir = r'Y:\sorger\data\computation\Yu-An\YC-20210610-codex_sascha_exp_243_no_binning'
+    input_dir = pathlib.Path(input_dir)
+    input_czis = sorted(input_dir.glob('*.czi'))
+
+    for i in input_czis:
+        reader = reg.BioformatsReader(str(i))
+        codex_best_z.best_z_to_ome(
+            reader=reader,
+            output_dir=input_dir / 'raw'
         )
