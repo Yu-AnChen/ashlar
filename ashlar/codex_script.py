@@ -1,7 +1,7 @@
 import pathlib
-from . import fileseries
-from . import codex_best_z
-from . import reg
+from ashlar import fileseries
+from ashlar import codex_best_z
+from ashlar import reg
 
 
 def run_1():
@@ -49,7 +49,7 @@ def run_2():
 
 
 def run_3():
-    input_dir = r'Y:\sorger\data\computation\Yu-An\YC-20210610-codex_sascha_exp_243_no_binning'
+    input_dir = r'Y:\sorger\data\computation\Yu-An\YC-20210610-codex_sascha_exp_243_no_binning\test'
     input_dir = pathlib.Path(input_dir)
     input_czis = sorted(input_dir.glob('*.czi'))
 

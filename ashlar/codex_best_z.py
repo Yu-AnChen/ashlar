@@ -17,6 +17,9 @@ def best_z_to_ome(
     output_dir='.'
 ):
 
+    input_path = pathlib.Path(reader.path)
+    print('Processing', input_path.name)
+
     def wrap(i):
         if hasattr(reader.metadata, 'z_map'):
             z_idxs = reader.metadata.z_map.keys()
@@ -47,7 +50,6 @@ def best_z_to_ome(
     print(tile_best_z)
 
     pixel_size = reader.metadata.pixel_size
-    input_path = pathlib.Path(reader.path)
     output_dir = pathlib.Path(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
     output_path = output_dir / f'{input_path.name}.ome.tif'
@@ -76,3 +78,4 @@ def best_z_to_ome(
                     }
                 }
                 tif.write(img, metadata=positions)
+    print()
