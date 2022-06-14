@@ -1091,7 +1091,7 @@ class Mosaic(object):
                 out[[i, -i-1]] = out[[-i-1, i]]
         if self.verbose:
             print()
-        return out
+        return np.where(out == 0, out.max(), out)
 
     def correct_illumination(self, img, channel):
         if self.do_correction:
