@@ -465,7 +465,8 @@ class EdgeAligner(object):
 
     def __init__(
         self, reader, channel=0, max_shift=15, false_positive_ratio=0.01,
-        randomize=False, filter_sigma=0.0, do_make_thumbnail=True, verbose=False
+        randomize=False, filter_sigma=0.0, do_make_thumbnail=True, verbose=False,
+        maxworkers=None
     ):
         self.channel = channel
         self.reader = CachingReader(reader, self.channel)
@@ -477,6 +478,7 @@ class EdgeAligner(object):
         self.randomize = randomize
         self.filter_sigma = filter_sigma
         self.do_make_thumbnail = do_make_thumbnail
+        self.n_jobs = 1 if maxworkers is None else maxworkers
         self._cache = {}
 
     neighbors_graph = neighbors_graph
@@ -590,8 +592,8 @@ class EdgeAligner(object):
         self.errors_negative_sampled = errors
         self.max_error = np.percentile(errors, self.false_positive_ratio * 100)
 
-    def register_all(self, n_jobs=4):
-        _ = joblib.Parallel(n_jobs=n_jobs, verbose=1)(
+    def register_all(self):
+        _ = joblib.Parallel(n_jobs=self.n_jobs, verbose=1)(
             joblib.delayed(self.register_pair)(t1, t2)
             for t1, t2 in self.neighbors_graph.edges
         )
@@ -787,7 +789,7 @@ class EdgeAligner(object):
 class LayerAligner(object):
 
     def __init__(self, reader, reference_aligner, channel=None, max_shift=15,
-                 filter_sigma=0.0, verbose=False):
+                 filter_sigma=0.0, verbose=False, maxworkers=None):
         self.reader = reader
         self.reference_aligner = reference_aligner
         if channel is None:
@@ -798,6 +800,7 @@ class LayerAligner(object):
         self.max_shift_pixels = self.max_shift / self.metadata.pixel_size
         self.filter_sigma = filter_sigma
         self.verbose = verbose
+        self.n_jobs = 1 if maxworkers is None else maxworkers
         # FIXME Still a bit muddled here on the use of metadata positions vs.
         # corrected positions from the reference aligner. We probably want to
         # use metadata positions to find the cycle-to-cycle tile
@@ -829,11 +832,11 @@ class LayerAligner(object):
         self.reference_positions = reference_positions[self.reference_idx]
         self.reference_aligner_positions = self.reference_aligner.positions[self.reference_idx]
 
-    def register_all(self, n_jobs=4):
+    def register_all(self):
         n = self.metadata.num_images
         self.shifts = np.empty((n, 2))
         self.errors = np.empty(n)
-        results = joblib.Parallel(n_jobs=n_jobs, verbose=1)(
+        results = joblib.Parallel(n_jobs=self.n_jobs, verbose=1)(
             joblib.delayed(self.register)(i)
             for i in range(n)
         )
