@@ -20,10 +20,13 @@ import matplotlib.cm as mcm
 import matplotlib.patches as mpatches
 import matplotlib.patheffects as mpatheffects
 import zarr
+import joblib
+import threadpoolctl
 from . import utils
 from . import thumbnail
 from . import __version__ as _version
 
+threadpoolctl.threadpool_limits(1)
 
 if not jnius_config.vm_running:
     pkg_root = pathlib.Path(__file__).parent.resolve()
@@ -587,15 +590,11 @@ class EdgeAligner(object):
         self.errors_negative_sampled = errors
         self.max_error = np.percentile(errors, self.false_positive_ratio * 100)
 
-    def register_all(self):
-        n = self.neighbors_graph.size()
-        for i, (t1, t2) in enumerate(self.neighbors_graph.edges, 1):
-            if self.verbose:
-                sys.stdout.write('\r    aligning edge %d/%d' % (i, n))
-                sys.stdout.flush()
-            self.register_pair(t1, t2)
-        if self.verbose:
-            print()
+    def register_all(self, n_jobs=4):
+        _ = joblib.Parallel(n_jobs=n_jobs, verbose=1)(
+            joblib.delayed(self.register_pair)(t1, t2)
+            for t1, t2 in self.neighbors_graph.edges
+        )
         self.all_errors = np.array([x[1] for x in self._cache.values()])
         # Set error values above the threshold to infinity.
         for k, v in self._cache.items():
@@ -830,19 +829,17 @@ class LayerAligner(object):
         self.reference_positions = reference_positions[self.reference_idx]
         self.reference_aligner_positions = self.reference_aligner.positions[self.reference_idx]
 
-    def register_all(self):
+    def register_all(self, n_jobs=4):
         n = self.metadata.num_images
         self.shifts = np.empty((n, 2))
         self.errors = np.empty(n)
-        for i in range(n):
-            if self.verbose:
-                sys.stdout.write("\r    aligning tile %d/%d" % (i + 1, n))
-                sys.stdout.flush()
-            shift, error = self.register(i)
-            self.shifts[i] = shift
-            self.errors[i] = error
-        if self.verbose:
-            print()
+        results = joblib.Parallel(n_jobs=n_jobs, verbose=1)(
+            joblib.delayed(self.register)(i)
+            for i in range(n)
+        )
+        for idx, r in enumerate(results):
+            self.shifts[idx] = r[0]
+            self.errors[idx] = r[1]
 
     def calculate_positions(self):
         self.positions = (
