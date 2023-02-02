@@ -400,6 +400,8 @@ class BioformatsReader(PlateReader):
 
     def read(self, series, c):
         self.metadata._reader.setSeries(self.metadata.active_series[series])
+        if c < 0:
+            c += self.metadata.num_channels
         index = self.metadata._reader.getIndex(0, c, 0)
         byte_array = self.metadata._reader.openBytes(index)
         dtype = self.metadata.pixel_dtype
