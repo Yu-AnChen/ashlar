@@ -184,6 +184,8 @@ class FileSeriesReader(reg.PlateReader):
         self.metadata.set_active_plate_well(plate, well)
 
     def read(self, series, c):
+        if c < 0:
+            c += self.metadata.num_channels
         # TODO: Address tension between non-plate and plate-aware modes
         # here and in Metadata class.
         path = str(self.path / self.metadata.filename(series, c))

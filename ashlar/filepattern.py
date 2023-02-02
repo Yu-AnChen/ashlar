@@ -112,6 +112,8 @@ class FilePatternReader(reg.Reader):
         )
 
     def read(self, series, c):
+        if c < 0:
+            c += self.metadata.num_channels
         path = str(self.path / self.filename(series, c))
         channel = c if self.metadata.multi_channel_tiles else 0
         if path.lower().endswith((".tiff", ".tif")):
