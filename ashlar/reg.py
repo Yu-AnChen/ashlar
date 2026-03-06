@@ -25,6 +25,7 @@ from . import thumbnail
 from . import transform
 from . import __version__ as _version
 
+zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
 
 if not jnius_config.vm_running:
     pkg_root = pathlib.Path(__file__).parent.resolve()
@@ -1277,7 +1278,8 @@ class PyramidWriter:
         root = zarr.open(self.cache_path, mode="w")
 
         tasks = []
-        root.create_groups(*range(len(self.mosaics)))
+        for i in range(len(self.mosaics)):
+            root.require_group(str(i))
         for mi, mosaic in enumerate(self.mosaics):
             if self.do_mask_tissue:
                 mosaic.make_tissue_mask(qc_dir=pathlib.Path(self.path).parent)
@@ -1285,13 +1287,16 @@ class PyramidWriter:
                 mosaic.aligner.reader._cache = {}
                 mosaic.aligner.reader.channel = -1
             for channel in mosaic.channels:
-                root[mi].zeros(
-                    channel,
+                root[str(mi)].create_array(
+                    str(channel),
                     shape=self.base_shape,
                     dtype=self.ref_mosaic.aligner.metadata.pixel_dtype,
                     chunks=self.tile_shapes[0],
+                    fill_value=0,
                 )
-                tasks.append((mosaic.assemble_channel, channel, root[mi][channel]))
+                tasks.append(
+                    (mosaic.assemble_channel, channel, root[str(mi)][str(channel)])
+                )
         if self.n_jobs is None:
             self.n_jobs = joblib.cpu_count()
         n_jobs = min(len(tasks), joblib.cpu_count(), self.n_jobs)
@@ -1327,7 +1332,7 @@ class PyramidWriter:
                 if self.verbose:
                     print(f"    Channel {channel}:")
                 if self.parallel_assemble:
-                    img = self.mosaics_zarr[mi][channel]
+                    img = self.mosaics_zarr[str(mi)][str(channel)]
                     if self.verbose:
                         print("        Reading from zarr")
                 else:
@@ -1415,7 +1420,16 @@ class PyramidWriter:
                 if self.verbose:
                     print()
         if self.parallel_assemble:
-            self.mosaics_zarr.store.rmdir()
+            import asyncio
+
+            asyncio.run(self.cleanup())
+
+    async def cleanup(self):
+        store = self.mosaics_zarr.store
+        await store.clear()
+
+    # To run the async function
+
 
 
 class TiffListWriter:

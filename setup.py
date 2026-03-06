@@ -15,17 +15,19 @@ requires = [
     'scipy>=1.4.1',
     'scikit-image>=0.25', # The v1.0 API promises breaking changes.
     'scikit-learn>=0.21.1',
-    'tifffile>=2023.3.15',
-    'zarr>=2.11.3',
+    'tifffile>=2025.6.11',
+    'zarr>=3.1',
     'blessed>=1.17',
     'tqdm>=4.63.0',
     'fire==0.5.0',
     'seaborn>=0.12.0',
     'opencv-python-headless>=4.9',
-    'palom>=2024.9.1',
+    # 'palom>=2024.9.1',
     'lxml>=5.2.1',
     'joblib<1.5',
-    'compress-bg @ https://github.com/Yu-AnChen/compress-bg.git',
+    'ome-types>=0.6.3',
+    'zarrs>=0.2.2',
+    # 'compress-bg @ https://github.com/Yu-AnChen/compress-bg.git',
 ]
 
 
