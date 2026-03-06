@@ -2,12 +2,17 @@ import functools
 import itertools
 import warnings
 import skimage
+from skimage.restoration import uft
+import skimage.util
+import skimage.registration
+import skimage.transform
+import skimage.morphology
 import scipy.ndimage
 import numpy as np
 
 
 # Pre-calculate the Laplacian operator kernel. We'll always be using 2D images.
-_laplace_kernel = skimage.restoration.uft.laplacian(2, (3, 3))[1]
+_laplace_kernel = uft.laplacian(2, (3, 3))[1]
 
 def whiten(img, sigma):
     img = skimage.img_as_float32(img)
@@ -43,8 +48,7 @@ def register(img1, img2, sigma, upsample=10):
         img2w,
         upsample_factor=upsample,
         normalization=None,
-        return_error=False,
-    )
+    )[0]
     # At this point we may have a shift in the wrong quadrant since the FFT
     # assumes the signal is periodic. We test all four possibilities and return
     # the shift that gives the highest direct correlation (sum of products).
@@ -144,8 +148,7 @@ def register_angle(img1, img2, sigma, upsample=10):
         p2w,
         upsample_factor=upsample,
         normalization=None,
-        return_error=False,
-    )
+    )[0]
     # The output of reg_transform_polar has ambiguous phase (+/- 180 degrees) in
     # the polar axis due to the way it produces a shift-invariant image.  We
     # expect the true angle to be close to zero, so we'll invert anything beyond
@@ -284,7 +287,7 @@ def pastefunc_blend(target, img):
     # This should catch actual holes but not the actual unfilled space.
     # FIXME Should generate mask from tile boundaries instead.
     hole_threshold = np.mean(target.shape)
-    mask = skimage.morphology.remove_small_holes(target != 0, hole_threshold)
+    mask = skimage.morphology.remove_small_holes(target != 0, max_size=hole_threshold)
     dist = scipy.ndimage.distance_transform_cdt(mask)
     dmax = dist.max()
     if dmax == 0:
@@ -297,7 +300,7 @@ def pastefunc_blend(target, img):
         # img, such as barrel correction and rotation.
         # FIXME Should compute the geometry of the source image mask more
         # deliberately and precisely.
-        alpha[skimage.morphology.binary_dilation(img == 0)] = 1
+        alpha[skimage.morphology.dilation(img == 0)] = 1
     return target * alpha + img * (1 - alpha)
 
 
