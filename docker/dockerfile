@@ -2,6 +2,7 @@ FROM ghcr.io/prefix-dev/pixi:0.63.2-noble AS build
 
 WORKDIR /app
 COPY . .
+RUN pixi global install git
 RUN pixi install --locked
 RUN pixi shell-hook -s bash > /shell-hook
 RUN echo "#!/bin/bash" > /app/entrypoint.sh
