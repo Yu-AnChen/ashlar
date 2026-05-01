@@ -5,6 +5,7 @@ from . import utils
 from skimage.transform import rescale, rotate, AffineTransform
 from skimage.registration import phase_cross_correlation
 import tifffile
+import cv2
 
 
 def calculate_scale(reader, default_scale=0.05, min_size=1000):
@@ -31,10 +32,13 @@ def make_thumbnail(reader, channel=0, scale=0.05):
         sys.stdout.write("\r    assembling thumbnail %d/%d" % (i + 1, total))
         sys.stdout.flush()
         img = reader.read(c=channel, series=i)
-        # We don't need anti-aliasing as long as the coarse features in the
-        # images are bigger than the scale factor. This speeds up the rescaling
-        # dramatically.
-        img_s = rescale(img, scale, anti_aliasing=False)
+        # Use INTER_AREA for downsampling: it performs area-averaged interpolation
+        # (equivalent to skimage.transform.downscale_local_mean, but supporting
+        # non-integer scale factors) and is significantly faster than
+        # skimage.rescale(anti_aliasing=True) at large downscale factors.
+        img_s = cv2.resize(
+            img, dsize=None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA
+        )
         utils.paste(mosaic, img_s, pos_s, utils.pastefunc_blend)
     print()
     return mosaic
