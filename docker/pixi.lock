@@ -144,7 +144,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/xorg-libxxf86vm-1.1.7-hb03c661_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
       - pypi: https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl
-      - pypi: git+https://github.com/Yu-AnChen/ashlar?rev=ddd4501b521559a458dd06da665b70843f8ebaa7#ddd4501b521559a458dd06da665b70843f8ebaa7
+      - pypi: git+https://github.com/Yu-AnChen/ashlar?rev=bf8c3326f6230c1b1d474256e4d49095b914d865#bf8c3326f6230c1b1d474256e4d49095b914d865
       - pypi: https://files.pythonhosted.org/packages/22/04/2b4e111e0b902b1ac0b25e5e010af71c79fca093a3399bd7f8b82adcc536/blessed-1.33.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/98/78/01c019cdb5d6498122777c1a43056ebb3ebfeef2076d9d026bfe15583b2b/click-8.3.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/88/39/799be3f2f0f38cc727ee3b4f1445fe6d5e4133064ec2e4115069418a5bb6/cloudpickle-3.1.2-py3-none-any.whl
@@ -247,9 +247,9 @@ packages:
   - pkg:pypi/asciitree?source=hash-mapping
   size: 6164
   timestamp: 1531050741142
-- pypi: git+https://github.com/Yu-AnChen/ashlar?rev=ddd4501b521559a458dd06da665b70843f8ebaa7#ddd4501b521559a458dd06da665b70843f8ebaa7
+- pypi: git+https://github.com/Yu-AnChen/ashlar?rev=bf8c3326f6230c1b1d474256e4d49095b914d865#bf8c3326f6230c1b1d474256e4d49095b914d865
   name: ashlar
-  version: 2026.4.1
+  version: 2026.5.1
   requires_dist:
   - numpy>=1.18.1
   - pyjnius>=1.2.1

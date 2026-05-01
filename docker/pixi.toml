@@ -16,5 +16,5 @@ asciitree = ">=0.3.3,<0.4"
 fire = "*"
 
 [pypi-dependencies]
-ashlar = { git = "https://github.com/Yu-AnChen/ashlar", rev = "ddd4501b521559a458dd06da665b70843f8ebaa7" }
+ashlar = { git = "https://github.com/Yu-AnChen/ashlar", rev = "bf8c3326f6230c1b1d474256e4d49095b914d865" }
 palom = ">=2025.7"
