@@ -1182,7 +1182,7 @@ class Mosaic(object):
                 sys.stdout.flush()
 
             mask = np.ones(
-                self.aligner.metadata.tile_size(si),
+                self.aligner.metadata.size,
                 dtype=self.aligner.metadata.pixel_dtype,
             )
             if do_mask:
@@ -1190,7 +1190,7 @@ class Mosaic(object):
             if not np.any(mask):
                 continue
             mosaic_slice = utils.calculate_mosaic_position(
-                position, self.aligner.metadata.tile_size(si), self.shape
+                position, self.aligner.metadata.size, self.shape
             )["mosaic"]
             if mosaic_slice is not None:
                 img = self.aligner.reader.read(c=channel, series=si)

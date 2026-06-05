@@ -73,8 +73,8 @@ def make_reader_mask(reader, thumbnail_px_size=20, **kwargs):
 
     tile_mask = zarr.group()
     for ii, pp in enumerate(tqdm.tqdm(positions, desc="Making tissue mask")):
-        h, w = metadata.tile_size(ii)
-        out_shape = np.ceil(factor * metadata.tile_size(ii)).astype("int")
+        h, w = metadata.size
+        out_shape = np.ceil(factor * metadata.size).astype("int")
         tform = Affine(translation=pp[::-1])
         tmask = skimage.transform.warp(mask, tform, output_shape=out_shape, order=0)
         tile_mask[str(ii)] = skimage.transform.rescale(tmask, 1 / factor, order=0)[
