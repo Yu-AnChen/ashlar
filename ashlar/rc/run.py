@@ -18,6 +18,48 @@ def _build_reader(path):
     return reg.BioformatsReader(str(path))
 
 
+def _apply_illumination(aligner, ffp_path=None, dfp_path=None):
+    """Splice an IlluminationReader above the base reader in the chain.
+
+    Alignment runs on raw pixels; this inserts dark/flat-field correction just
+    above the base reader (i.e. beneath any PreprocReader rotation/crop) so the
+    profiles match the raw, full-frame tile geometry at assembly time.
+    """
+    if ffp_path is None and dfp_path is None:
+        return
+    # Walk down the wrapper chain (CachingReader/PreprocReader/...) to the base
+    # reader and the wrapper that holds it.
+    parent = None
+    reader = aligner.reader
+    while hasattr(reader, "reader"):
+        parent, reader = reader, reader.reader
+    illum = reg.IlluminationReader(reader, ffp_path=ffp_path, dfp_path=dfp_path)
+    if parent is None:
+        aligner.reader = illum
+    else:
+        parent.reader = illum
+
+
+def _expand_profiles(profiles, n):
+    """Normalize a profile-path argument to a list of length ``n``.
+
+    Accepts None (-> all None), a single path (broadcast to every cycle), or a
+    per-cycle list, mirroring ashlar's --ffp/--dfp semantics.
+    """
+    if profiles is None:
+        return [None] * n
+    if isinstance(profiles, (str, pathlib.Path)):
+        profiles = [profiles]
+    profiles = list(profiles)
+    if len(profiles) == 1:
+        return profiles * n
+    if len(profiles) != n:
+        raise ValueError(
+            f"Expected 1 or {n} illumination profiles, got {len(profiles)}"
+        )
+    return profiles
+
+
 def stitch(
     path: str | pathlib.Path,
     raw_endwith: str = "pysed.ome.tif",
@@ -155,6 +197,8 @@ def assemble(
     path: str | pathlib.Path,
     output_path: str | pathlib.Path = None,
     channels: list[int] | None = None,
+    ffp_path: str | pathlib.Path | None = None,
+    dfp_path: str | pathlib.Path | None = None,
     is_cli: bool = True,
 ):
     path = pathlib.Path(path).absolute()
@@ -163,6 +207,7 @@ def assemble(
         output_path = path / f"{aligner.from_pickle.stem}.ome.tif"
     else:
         output_path = _custom_output_path(output_path)
+    _apply_illumination(aligner, ffp_path=ffp_path, dfp_path=dfp_path)
     mosaic = reg.Mosaic(
         aligner, shape=aligner.mosaic_shape, verbose=False, channels=channels
     )

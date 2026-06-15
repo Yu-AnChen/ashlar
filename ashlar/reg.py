@@ -444,6 +444,111 @@ class BarrelCorrectionReader(Reader):
         return img
 
 
+def load_illumination_profile(
+    path, num_channels, img_size, profile_type, barrel_correction=None
+):
+    """Load, normalize, and validate an illumination profile.
+
+    Parameters
+    ----------
+    path : str
+        Path to the image being loaded.
+    num_channels : int
+        Expected number of channels in the profile image.
+    img_size : tuple
+        Shape of a 2D image in (row, column).
+    profile_type : str
+        Type of profile, only accepts 'dark' and 'flat'.
+    barrel_correction : float, optional
+        If set, apply barrel/pincushion correction to the profile so it matches
+        barrel-corrected image data.
+
+    Returns
+    ----------
+    ndarray
+        Image as numpy array in the (channel, row, column) arrangement.
+        If ``path`` is ``None``, return an array in (channel, 1, 1) shape.
+        The values in the array are 0 and 1 for dark- and flat-field profile, respectively.
+    """
+    assert profile_type in ('dark', 'flat'), "profile_type must be either 'dark' or 'flat'."
+    if path is None:
+        profile_shape = (num_channels, 1, 1)
+        return (
+            np.zeros(profile_shape)
+                if profile_type == 'dark'
+                else np.ones(profile_shape)
+        )
+
+    expected_ndim = 2 if num_channels == 1 else 3
+    profile = skimage.io.imread(path)
+    if profile.ndim != expected_ndim:
+        raise ValueError(
+            'Expect dimensionality is {} for {}-field profile but {} has {} dimensions.'.format(
+                expected_ndim, profile_type, path, profile.ndim
+            )
+        )
+
+    profile = np.atleast_3d(profile)
+    # skimage.io.imread convert images with 3 and 4 channels into (Y, X, C) shape,
+    # but as (C, Y, X) for images with other channel numbers. We normalize
+    # image-shape to (C, Y, X) regardless of the number of channels in the image.
+    if num_channels in (1, 3, 4):
+        profile = np.moveaxis(profile, 2, 0)
+    if profile.shape != (num_channels,) + img_size:
+        raise ValueError(
+            '{}-field profile shape {} does not match target image shape {}.'.format(
+                profile_type.capitalize(), profile.shape, img_size
+            )
+        )
+
+    if barrel_correction:
+        cval = 0 if profile_type == "dark" else 1
+        for cimg in profile:
+            cimg[:] = transform.barrel_correction(
+                cimg, barrel_correction, cval=cval
+            )
+
+    return profile
+
+
+class IlluminationReader(Reader):
+    """Wraps a reader to apply dark/flat-field illumination correction.
+
+    Correction is applied in the raw image frame -- i.e. beneath any geometric
+    preprocessing layered on top -- so the profiles must match the wrapped
+    reader's (uncropped, unrotated) tile geometry.
+    """
+
+    def __init__(self, reader, ffp_path=None, dfp_path=None):
+        self.reader = reader
+        num_channels = reader.metadata.num_channels
+        img_size = tuple(reader.metadata.size)
+        self.dfp = load_illumination_profile(
+            dfp_path, num_channels, img_size, 'dark'
+        )
+        self.ffp = load_illumination_profile(
+            ffp_path, num_channels, img_size, 'flat'
+        )
+        # FIXME This assumes integer dtypes. Do we need to support floats?
+        self.dfp = self.dfp / np.iinfo(reader.metadata.pixel_dtype).max
+
+    @property
+    def metadata(self):
+        return self.reader.metadata
+
+    @property
+    def path(self):
+        return self.reader.path
+
+    def read(self, series, c):
+        img = self.reader.read(series, c)
+        img = skimage.util.img_as_float(img, force_copy=True)
+        img -= self.dfp[c, ...]
+        img /= self.ffp[c, ...]
+        img.clip(0, 1, out=img)
+        return utils.dtype_convert(img, self.metadata.pixel_dtype)
+
+
 class CachingReader(Reader):
     """Wraps a reader to provide tile image caching."""
 
@@ -1068,65 +1173,10 @@ class Mosaic(object):
         return channels
 
     def _load_single_profile(self, path, num_channels, img_size, profile_type):
-        """Load, normalize, and validate illumination profile.
-
-        Parameters
-        ----------
-        path : str
-            Path to the image being loaded.
-        num_channels : int
-            Expected number of channels in the profile image.
-        img_size : tuple
-            Shape of a 2D image in (row, column).
-        profile_type : str
-            Type of profile, only accepts 'dark' and 'flat'.
-
-        Returns
-        ----------
-        ndarray
-            Image as numpy array in the (channel, row, column) arrangement.
-            If ``path`` is ``None``, return an array in (channel, 1, 1) shape.
-            The values in the array are 0 and 1 for dark- and flat-field profile, respectively.
-        """
-        assert profile_type in ('dark', 'flat'), "profile_type must be either 'dark' or 'flat'."
-        if path is None:
-            profile_shape = (num_channels, 1, 1)
-            return (
-                np.zeros(profile_shape)
-                    if profile_type == 'dark'
-                    else np.ones(profile_shape)
-            )
-
-        expected_ndim = 2 if num_channels == 1 else 3
-        profile = skimage.io.imread(path)
-        if profile.ndim != expected_ndim:
-            raise ValueError(
-                'Expect dimensionality is {} for {}-field profile but {} has {} dimensions.'.format(
-                    expected_ndim, profile_type, path, profile.ndim
-                )
-            )
-
-        profile = np.atleast_3d(profile)
-        # skimage.io.imread convert images with 3 and 4 channels into (Y, X, C) shape,
-        # but as (C, Y, X) for images with other channel numbers. We normalize
-        # image-shape to (C, Y, X) regardless of the number of channels in the image.
-        if num_channels in (1, 3, 4):
-            profile = np.moveaxis(profile, 2, 0)
-        if profile.shape != (num_channels,) + img_size:
-            raise ValueError(
-                '{}-field profile shape {} does not match target image shape {}.'.format(
-                    profile_type.capitalize(), profile.shape, img_size
-                )
-            )
-
-        if self.barrel_correction:
-            cval = 0 if profile_type == "dark" else 1
-            for cimg in profile:
-                cimg[:] = transform.barrel_correction(
-                    cimg, self.barrel_correction, cval=cval
-                )
-
-        return profile
+        return load_illumination_profile(
+            path, num_channels, img_size, profile_type,
+            barrel_correction=self.barrel_correction,
+        )
 
     def _load_correction_profiles(self, dfp_path, ffp_path):
         if dfp_path is None and ffp_path is None:

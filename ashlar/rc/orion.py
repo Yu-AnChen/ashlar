@@ -31,6 +31,8 @@ def run_orion(
     max_error: float | None = None,
     n_jobs: int = 10,
     no_mask_background: bool = False,
+    ffp_paths: list[str | pathlib.Path] | None = None,
+    dfp_paths: list[str | pathlib.Path] | None = None,
 ):
 
     start = int(time.perf_counter())
@@ -95,10 +97,16 @@ def run_orion(
         aligners.append(c21l)
 
     mosaic_shape = c1e.mosaic_shape
-    mosaics = [
-        reg.Mosaic(aa, shape=mosaic_shape, verbose=False, channels=output_channels)
-        for aa in aligners
-    ]
+    # Illumination correction is applied at assembly time (alignment ran on raw
+    # pixels). Profiles are per-cycle, parallel to `paths`/`aligners`.
+    ffp_list = run._expand_profiles(ffp_paths, len(aligners))
+    dfp_list = run._expand_profiles(dfp_paths, len(aligners))
+    mosaics = []
+    for aa, ffp_p, dfp_p in zip(aligners, ffp_list, dfp_list):
+        run._apply_illumination(aa, ffp_path=ffp_p, dfp_path=dfp_p)
+        mosaics.append(
+            reg.Mosaic(aa, shape=mosaic_shape, verbose=False, channels=output_channels)
+        )
 
     start_mosaic = int(time.perf_counter())
 
@@ -232,6 +240,26 @@ def main(argv=sys.argv):
         action="store_true",
         help="Do not automatically mask out background region",
     )
+    parser.add_argument(
+        "--ffp",
+        type=pathlib.Path,
+        nargs="+",
+        default=None,
+        help=(
+            "Flat-field illumination profile(s), applied at assembly. Provide"
+            " one profile (used for all cycles) or one per input file."
+        ),
+    )
+    parser.add_argument(
+        "--dfp",
+        type=pathlib.Path,
+        nargs="+",
+        default=None,
+        help=(
+            "Dark-field illumination profile(s), applied at assembly. Provide"
+            " one profile (used for all cycles) or one per input file."
+        ),
+    )
 
     args = parser.parse_args(argv[1:])
 
@@ -256,6 +284,8 @@ def main(argv=sys.argv):
         max_error=args.max_error,
         n_jobs=args.n_jobs,
         no_mask_background=args.no_mask_background,
+        ffp_paths=args.ffp,
+        dfp_paths=args.dfp,
     )
 
 
