@@ -76,7 +76,7 @@ def align_cycles(reader1, reader2, scale=0.05, angle=None):
         print(f'\r    estimated cycle rotation = {angle:.4f} degrees')
         if np.abs(angle) >= 5:
             print('\r    ignore large detected rotation: set to 0.01 for refinement')
-        angle = 0.01
+            angle = 0.01
     if angle != 0:
         img2 = rotate(img2, angle, resize=False, center=(0, 0))
     shifts = calculate_image_offset(img1, img2, int(1 / scale))
