@@ -113,8 +113,8 @@ def process_rotated_reader(
     )
     corrected_positions += np.multiply(-0.5, crop_shape)
 
-    c2rr = preproc_reader.PreprocBioformatsReader(
-        c2r.path,
+    c2rr = preproc_reader.PreprocReader(
+        c2r,
         angle=angle,
         center_crop_shape=crop_shape
     )

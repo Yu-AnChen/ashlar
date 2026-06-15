@@ -9,7 +9,7 @@ import tifffile
 from .. import reg, utils
 from ..ometiff import OmeTiffReader
 from .. import __version__ as VERSION
-from . import align_cycles, ome_metadata
+from . import align_cycles, ome_metadata, preproc_reader
 
 
 def _build_reader(path):
@@ -193,9 +193,11 @@ def _load_ashlar_pkl(path):
     aligner.from_pickle = ashlar_pkls[-1]
     raw_path = None
     reader = aligner.reader
-    if issubclass(type(aligner.reader), reg.CachingReader):
-        reader = aligner.reader.reader
-    if not issubclass(type(reader), reg.BioformatsReader):
+    if isinstance(reader, reg.CachingReader):
+        reader = reader.reader
+    if isinstance(reader, preproc_reader.PreprocReader):
+        reader = reader.reader
+    if not isinstance(reader, reg.BioformatsReader):
         raise NotImplementedError
     raw_path = pathlib.Path(reader.path)
     alt_raw_path = path / raw_path.name
