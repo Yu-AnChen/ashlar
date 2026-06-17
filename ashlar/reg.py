@@ -941,7 +941,38 @@ class EdgeAligner(object):
         plt.tight_layout()
 
 
+def _fit_similarity(src, dst):
+    """Least-squares 2D similarity transform mapping ``src`` to ``dst``.
+
+    Returns ``(M, t)`` where ``M`` is a 2x2 scaled-rotation matrix and ``t`` a
+    length-2 translation, such that ``dst ~= src @ M.T + t``. The closed form
+    is coordinate-order agnostic, so it works directly in (row, col).
+    """
+    src = np.asarray(src, dtype=float)
+    dst = np.asarray(dst, dtype=float)
+    sbar = src.mean(axis=0)
+    dbar = dst.mean(axis=0)
+    s = src - sbar
+    d = dst - dbar
+    denom = (s ** 2).sum()
+    if denom == 0:
+        return np.eye(2), dbar - sbar
+    a = (s * d).sum() / denom
+    b = (s[:, 0] * d[:, 1] - s[:, 1] * d[:, 0]).sum() / denom
+    M = np.array([[a, -b], [b, a]])
+    t = dbar - M @ sbar
+    return M, t
+
+
 class LayerAligner(object):
+
+    # Gate for folding a per-reload rotation into tile placement
+    # (constrain_positions): require at least this many kept tiles for a stable
+    # fit, and a rotation of at least this magnitude (degrees) to act on -- below
+    # either, placement stays identical to the reference-model + translation
+    # baseline.
+    _min_kept_for_rotation = 10
+    _rotation_tol = 0.01
 
     def __init__(self, reader, reference_aligner, channel=None, max_shift=15,
                  filter_sigma=0.0, verbose=False):
@@ -1026,6 +1057,8 @@ class LayerAligner(object):
         if np.all(position_diffs == 0):
             self.discard = np.full(len(position_diffs), False)
             self.offset = 0
+            self.residual_rotation = 0.0
+            self.shifts_residual = np.zeros_like(self.shifts)
             return
         # Discard camera background registration which will shift target
         # positions to reference aligner positions, due to strong
@@ -1051,12 +1084,35 @@ class LayerAligner(object):
         # Recalculate the mean shift, also ignoring the extreme values.
         discard |= extremes
         self.discard = discard
-        if discard.all():
-            self.offset = 0
-        else:
-            self.offset = np.nan_to_num(np.mean(self.shifts[~discard], axis=0))
-        # Fill in discarded shifts from the predictions.
-        self.positions[discard] = predictions[discard] + self.offset
+        keep = ~discard
+        # Baseline placement = the reference cycle's stage-distortion model (a
+        # shared, instrument-level property, fit robustly from the whole
+        # reference stitch) plus this cycle's translation. This is the original
+        # placement model.
+        self.offset = (
+            0 if discard.all()
+            else np.nan_to_num(np.mean(self.shifts[keep], axis=0))
+        )
+        self.residual_rotation = 0.0
+        model = predictions + self.offset
+        # Slide reloading adds a rigid rotation the reference model can't contain;
+        # it appears as a residual swirl in the kept tiles (tangential shift
+        # growing with distance from center). Fit that per-reload rotation (+ a
+        # tiny isotropic scale + translation) on top of the reference baseline
+        # and, only if it's beyond fit noise, fold it into the model so the
+        # rotation is carried to the discarded/model-filled tiles too. With no
+        # rotation (or too few kept tiles) this leaves the original baseline
+        # untouched -- a strict no-op.
+        if keep.sum() >= self._min_kept_for_rotation:
+            M, t = _fit_similarity(predictions[keep], self.positions[keep])
+            rotation = float(np.degrees(np.arctan2(M[1, 0], M[0, 0])))
+            if abs(rotation) >= self._rotation_tol:
+                self.residual_rotation = rotation
+                model = predictions @ M.T + t
+        # Discarded tiles take the model position; kept tiles keep their measured
+        # position (== model + a small, swirl-free local residual).
+        self.positions[discard] = model[discard]
+        self.shifts_residual = self.positions - model
 
     def register(self, t):
         """Return relative shift between images and the alignment error."""
@@ -1674,7 +1730,8 @@ def plot_layer_shifts(aligner, img=None, im_kwargs=None):
 
 
 def plot_layer_quality(
-    aligner, img=None, scale=1.0, artist='patches', annotate=True, im_kwargs=None
+    aligner, img=None, scale=1.0, artist='patches', annotate=True,
+    show_residual=True, im_kwargs=None
 ):
     if im_kwargs is None:
         im_kwargs = {}
@@ -1683,7 +1740,14 @@ def plot_layer_quality(
     draw_mosaic_image(ax, aligner, img, **im_kwargs)
 
     h, w = aligner.metadata.size
-    positions, centers, shifts = aligner.positions, aligner.centers, aligner.shifts
+    # Prefer the swirl-free local residual (the global rotation/scale/translation
+    # is folded into the position model) so the arrows show genuine per-tile
+    # registration error rather than coherent residual rotation.
+    if show_residual and hasattr(aligner, 'shifts_residual'):
+        shifts = aligner.shifts_residual
+    else:
+        shifts = aligner.shifts
+    positions, centers = aligner.positions, aligner.centers
 
     if scale != 1.0:
         h, w, positions, centers, shifts = [
@@ -1732,6 +1796,10 @@ def plot_layer_quality(
                 )
             ax.add_patch(arrow)
     ax.axis('off')
+    if getattr(aligner, 'residual_rotation', None):
+        ax.set_title(
+            f"residual rotation = {aligner.residual_rotation:+.4f}°"
+        )
 
 
 def draw_mosaic_image(ax, aligner, img, **kwargs):

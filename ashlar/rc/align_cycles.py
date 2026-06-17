@@ -3,8 +3,8 @@ import scipy.spatial
 import skimage.transform
 import tqdm
 
-from .. import thumbnail, utils
-from . import rotation_utils
+from .. import reg, thumbnail, utils
+from . import preproc_reader, rotation_utils
 
 
 def correct_position(layer_aligner, angle):
@@ -63,10 +63,50 @@ def refine_angle(layer_aligner, rank=None, top_k=None):
     return np.nanmedian(angles)
 
 
-import skimage.transform
+def _build_rotated_reader(c2r, c1e, angle, scale):
+    """Build a center-cropped, rotated PreprocReader for ``c2r`` at ``angle``.
 
-from .. import reg
-from . import preproc_reader, rotation_utils
+    Returns the reader (with cycle-corrected tile positions and a matching
+    rotated thumbnail) and the corrected nominal positions.
+    """
+    ori_shape = c2r.metadata.size
+    rotation_slice = rotation_utils.compute_slice(ori_shape, angle)
+    crop_shape = np.zeros(ori_shape)[rotation_slice].shape
+
+    cycle_tform = thumbnail.align_cycles(
+        c1e.reader, c2r, scale=scale, angle=angle,
+    )
+    corrected_positions = (
+        np.fliplr(cycle_tform(np.fliplr(c2r.metadata.centers)))
+    )
+    corrected_positions += np.multiply(-0.5, crop_shape)
+
+    c2rr = preproc_reader.PreprocReader(
+        c2r, angle=angle, center_crop_shape=crop_shape
+    )
+    c2rr.metadata._positions = corrected_positions
+    c2rr.metadata.extent = (
+        c2rr.metadata.positions.max(axis=0) + c2rr.metadata.size - c2rr.metadata.origin
+    )
+
+    rthumbnail = skimage.transform.rotate(c2r.thumbnail, angle=angle, resize=True)
+    t_offset = .5 * np.subtract(rthumbnail.shape, scale * c2rr.metadata.extent)
+    ro, co = np.around(t_offset).astype(int)
+    slice_r = slice(None) if ro == 0 else slice(ro, -ro)
+    slice_c = slice(None) if co == 0 else slice(co, -co)
+    c2rr.thumbnail = rthumbnail[slice_r, slice_c]
+
+    return c2rr, corrected_positions
+
+
+def _make_layer_aligner(c2rr, c1e, corrected_positions, channel, max_shift, filter_sigma):
+    la = reg.LayerAligner(
+        c2rr, c1e, verbose=True,
+        channel=channel, max_shift=max_shift, filter_sigma=filter_sigma,
+    )
+    la.corrected_nominal_positions = corrected_positions
+    set_pairs(la)
+    return la
 
 
 def process_rotated_reader(
@@ -95,49 +135,14 @@ def process_rotated_reader(
         return c21l
 
     edgy_scores = tile_edge_score(c2r, c21l.channel)
-    angle = refine_angle(c21l, rank=np.argsort(edgy_scores)[::-1], top_k=30)
+    rank = np.argsort(edgy_scores)[::-1]
+    angle = refine_angle(c21l, rank=rank, top_k=30)
     print(f'\r    refined cycle rotation = {angle:.4f} degrees')
 
-    ori_shape = c2r.metadata.size
-    rotation_slice = rotation_utils.compute_slice(ori_shape, angle)
-    crop_shape = np.zeros(ori_shape)[rotation_slice].shape
-
-    cycle_tform = thumbnail.align_cycles(
-        c21l.reference_aligner.reader,
-        c21l.reader,
-        scale=SCALE,
-        angle=angle,
+    c2rr, corrected_positions = _build_rotated_reader(c2r, c1e, angle, SCALE)
+    c21lr = _make_layer_aligner(
+        c2rr, c1e, corrected_positions, channel, max_shift, filter_sigma
     )
-    corrected_positions = (
-        np.fliplr(cycle_tform(np.fliplr(c2r.metadata.centers)))
-    )
-    corrected_positions += np.multiply(-0.5, crop_shape)
-
-    c2rr = preproc_reader.PreprocReader(
-        c2r,
-        angle=angle,
-        center_crop_shape=crop_shape
-    )
-    c2rr.metadata._positions = corrected_positions
-    c2rr.metadata.extent = (
-        c2rr.metadata.positions.max(axis=0) + c2rr.metadata.size - c2rr.metadata.origin
-    )
-
-    rthumbnail = skimage.transform.rotate(c21l.reader.thumbnail, angle=angle, resize=True)
-    t_offset = .5*np.subtract(rthumbnail.shape, SCALE * c2rr.metadata.extent)
-    ro, co = np.around(t_offset).astype(int)
-    slice_r = slice(None) if ro == 0 else slice(ro, -ro)
-    slice_c = slice(None) if co == 0 else slice(co, -co)
-    c2rr.thumbnail = rthumbnail[slice_r, slice_c]
-
-
-    c21lr = reg.LayerAligner(
-        c2rr, c1e, verbose=True,
-        channel=channel, max_shift=max_shift,
-        filter_sigma=filter_sigma
-    )
-    c21lr.corrected_nominal_positions = corrected_positions
-    set_pairs(c21lr)
     c21lr.register_all()
     c21lr.calculate_positions()
     c21lr.mosaic_shape = c1e.mosaic_shape
