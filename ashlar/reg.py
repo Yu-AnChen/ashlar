@@ -1083,7 +1083,6 @@ class LayerAligner(object):
         extremes = distance > max_dist
         # Recalculate the mean shift, also ignoring the extreme values.
         discard |= extremes
-        self.discard = discard
         keep = ~discard
         # Baseline placement = the reference cycle's stage-distortion model (a
         # shared, instrument-level property, fit robustly from the whole
@@ -1109,6 +1108,27 @@ class LayerAligner(object):
             if abs(rotation) >= self._rotation_tol:
                 self.residual_rotation = rotation
                 model = predictions @ M.T + t
+                # The extremes test above used a rotation-free model, so it
+                # discarded tiles that were only "far" because of this rotation
+                # (tangential shift ~ angle * radius), which max_shift can exceed
+                # near the edges. Re-admit those whose residual from the rotation
+                # model is now within range so they keep their measured position;
+                # genuine outliers (large residual under any model) stay out.
+                discard &= ~(
+                    extremes
+                    & (np.linalg.norm(self.positions - model, axis=1) <= max_dist)
+                )
+                # Re-fit on the recovered inliers so the model -- and thus the
+                # reported rotation and the outlier fills -- uses the full lever
+                # arm, not just the central tiles that survived the rotation-free
+                # gate.
+                keep = ~discard
+                M, t = _fit_similarity(predictions[keep], self.positions[keep])
+                self.residual_rotation = float(
+                    np.degrees(np.arctan2(M[1, 0], M[0, 0]))
+                )
+                model = predictions @ M.T + t
+        self.discard = discard
         # Discarded tiles take the model position; kept tiles keep their measured
         # position (== model + a small, swirl-free local residual).
         self.positions[discard] = model[discard]
