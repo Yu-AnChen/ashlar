@@ -75,13 +75,8 @@ def run_orion(
 
         reg.plot_layer_quality(
             c21l,
-            img=utils.visualize_long_tail_image(c21l.reader.thumbnail),
-            im_kwargs=dict(
-                interpolation="nearest",
-                vmin=np.percentile(
-                    utils.visualize_long_tail_image(c21l.reader.thumbnail), 25
-                ),
-            ),
+            img=utils.visualize_image(c21l.reader.thumbnail),
+            im_kwargs=dict(interpolation="nearest"),
         )
         fig = plt.gcf()
         fig.suptitle(raw.name)

@@ -347,11 +347,8 @@ def imsave(fname, arr, **kwargs):
     skimage.external.tifffile.imsave(fname, arr, **kwargs)
 
 
-def visualize_long_tail_image(img, clip_min_factor=1e-3):
+def visualize_image(img):
     import skimage.exposure
 
-    img = skimage.exposure.rescale_intensity(img, out_range=(1, 1e3))
-    img = np.log(img)
-    nonzero_min = img[img > 0].min()
-    img[img == 0] = nonzero_min
-    return img
+    img = skimage.exposure.rescale_intensity(img, out_range=(0.0, 1.0))
+    return skimage.exposure.equalize_adapthist(img)
