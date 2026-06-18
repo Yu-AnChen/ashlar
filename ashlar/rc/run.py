@@ -67,6 +67,7 @@ def stitch(
     alpha: float = 0.01,
     max_error: float | None = None,
     filter_sigma: float = 1.0,
+    qc_dir: str | pathlib.Path | None = None,
     is_cli: bool = True,
 ):
     path = pathlib.Path(path).absolute()
@@ -74,7 +75,11 @@ def stitch(
     assert len(raws) == 1
     raw = raws[0]
 
-    output_path = path / f"{raw.stem}.ashlar.pkl"
+    # Pickle and QC plots default to the scan dir (`path`); callers such as the
+    # orion pipeline redirect them to a dedicated folder via `qc_dir`.
+    qc_dir = path if qc_dir is None else pathlib.Path(qc_dir)
+    qc_dir.mkdir(parents=True, exist_ok=True)
+    output_path = qc_dir / f"{raw.stem}.ashlar.pkl"
 
     c1r = _build_reader(raw)
     if "rcpnl" not in raw_endwith:
@@ -100,7 +105,7 @@ def stitch(
     fig.suptitle(path.name, color="white")
     fig.set_size_inches(fig.get_size_inches() * 4)
     fig.tight_layout()
-    fig.savefig(path / f"{raw.stem}.ashlarqc.pdf", bbox_inches="tight")
+    fig.savefig(qc_dir / f"{raw.stem}.ashlarqc.pdf", bbox_inches="tight")
     plt.close(fig)
 
     reg.plot_edge_scatter(c1e)
@@ -108,7 +113,7 @@ def stitch(
     fig.suptitle(path.name)
     fig.set_size_inches(fig.get_size_inches() * 2)
     fig.tight_layout()
-    fig.savefig(path / f"{raw.stem}.ashlarqcsctr.pdf", bbox_inches="tight")
+    fig.savefig(qc_dir / f"{raw.stem}.ashlarqcsctr.pdf", bbox_inches="tight")
     plt.close(fig)
 
     c1e.reader._cache = {}

@@ -33,6 +33,7 @@ def run_orion(
     no_mask_background: bool = False,
     ffp_paths: list[str | pathlib.Path] | None = None,
     dfp_paths: list[str | pathlib.Path] | None = None,
+    only_qc: bool = False,
 ):
 
     start = int(time.perf_counter())
@@ -45,6 +46,10 @@ def run_orion(
     assert output_path.name.endswith(".ome.tif")
     output_path.parent.mkdir(exist_ok=True, parents=True)
 
+    # Pickles and QC plots live in a folder next to the output image.
+    qc_dir = output_path.parent / "ashlar-qc"
+    qc_dir.mkdir(exist_ok=True, parents=True)
+
     ref, *movings = paths
 
     c1e = run.stitch(
@@ -55,6 +60,7 @@ def run_orion(
         alpha=alpha,
         max_error=max_error,
         filter_sigma=filter_sigma,
+        qc_dir=qc_dir,
         is_cli=False,
     )
 
@@ -63,7 +69,7 @@ def run_orion(
     for mm in movings:
         raw = mm.absolute()
 
-        pickle_path = raw.parent / f"{raw.stem}.ashlar.pkl"
+        pickle_path = qc_dir / f"{raw.stem}.ashlar.pkl"
 
         c2r = reg.BioformatsReader(str(raw))
         if "rcpnl" not in raw.name:
@@ -82,7 +88,7 @@ def run_orion(
         fig.suptitle(raw.name)
         fig.set_size_inches(fig.get_size_inches() * 2)
         fig.tight_layout()
-        fig.savefig(raw.parent / f"{raw.stem}.ashlarqc.pdf", bbox_inches="tight")
+        fig.savefig(qc_dir / f"{raw.stem}.ashlarqc.pdf", bbox_inches="tight")
         plt.close("all")
 
         c1e.reader._cache = {}
@@ -90,6 +96,11 @@ def run_orion(
             pickle.dump(c21l, f)
 
         aligners.append(c21l)
+
+    if only_qc:
+        print("\n--only-qc set; skipping mosaic generation.")
+        print("QC plots and pickles written to:", qc_dir)
+        return
 
     mosaic_shape = c1e.mosaic_shape
     # Illumination correction is applied at assembly time (alignment ran on raw
@@ -255,6 +266,11 @@ def main(argv=sys.argv):
             " one profile (used for all cycles) or one per input file."
         ),
     )
+    parser.add_argument(
+        "--only-qc",
+        action="store_true",
+        help="Run alignment and write QC plots/pickles only; skip mosaic generation.",
+    )
 
     args = parser.parse_args(argv[1:])
 
@@ -281,6 +297,7 @@ def main(argv=sys.argv):
         no_mask_background=args.no_mask_background,
         ffp_paths=args.ffp,
         dfp_paths=args.dfp,
+        only_qc=args.only_qc,
     )
 
 
