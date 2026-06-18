@@ -286,7 +286,7 @@ class BioformatsMetadata(PlateMetadata):
             v_units = method(0)
             if v_units is None:
                 warn_data(
-                    "Pixel size undefined; falling back to 1.0 \u03BCm."
+                    "Pixel size undefined; falling back to 1.0 \u00b5m."
                 )
                 value = 1.0
             else:
@@ -373,7 +373,7 @@ class BioformatsMetadata(PlateMetadata):
                     # emit a warning.
                     warn_data(
                         "Stage coordinates' measurement unit is undefined;"
-                        " assuming \u03BCm."
+                        " assuming \u00b5m."
                     )
                     v = v_units.value()
                 value = v.doubleValue()
