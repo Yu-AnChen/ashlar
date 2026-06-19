@@ -1,13 +1,22 @@
 import functools
 import itertools
+import os
 import warnings
 import skimage
+import scipy.fft
 import scipy.ndimage
 import numpy as np
 
 
 # Pre-calculate the Laplacian operator kernel. We'll always be using 2D images.
 _laplace_kernel = skimage.restoration.uft.laplacian(2, (3, 3))[1]
+
+# Threads scipy.fft uses for the FFTs inside phase_cross_correlation. 1 matches
+# scipy's default and ashlar's historical single-threaded behavior; raising it
+# (~4 is a good sweet spot on multi-core machines -- diminishing returns beyond,
+# and all-cores can regress) speeds the FFT-bound registration with no change in
+# results. Override via the ASHLAR_FFT_WORKERS env var or by reassigning here.
+FFT_WORKERS = int(os.environ.get("ASHLAR_FFT_WORKERS", "1"))
 
 def whiten(img, sigma):
     img = skimage.img_as_float32(img)
@@ -38,13 +47,14 @@ def window(img):
 def register(img1, img2, sigma, upsample=10):
     img1w = window(whiten(img1, sigma))
     img2w = window(whiten(img2, sigma))
-    shift = skimage.registration.phase_cross_correlation(
-        img1w,
-        img2w,
-        upsample_factor=upsample,
-        normalization=None,
-        return_error=False,
-    )
+    with scipy.fft.set_workers(FFT_WORKERS):
+        shift = skimage.registration.phase_cross_correlation(
+            img1w,
+            img2w,
+            upsample_factor=upsample,
+            normalization=None,
+            return_error=False,
+        )
     # At this point we may have a shift in the wrong quadrant since the FFT
     # assumes the signal is periodic. We test all four possibilities and return
     # the shift that gives the highest direct correlation (sum of products).
@@ -139,13 +149,14 @@ def fourier_shift(img, shift):
 def register_angle(img1, img2, sigma, upsample=10):
     p1w = whiten(reg_transform_polar(img1), sigma)
     p2w = whiten(reg_transform_polar(img2), sigma)
-    shift = skimage.registration.phase_cross_correlation(
-        p1w,
-        p2w,
-        upsample_factor=upsample,
-        normalization=None,
-        return_error=False,
-    )
+    with scipy.fft.set_workers(FFT_WORKERS):
+        shift = skimage.registration.phase_cross_correlation(
+            p1w,
+            p2w,
+            upsample_factor=upsample,
+            normalization=None,
+            return_error=False,
+        )
     # The output of reg_transform_polar has ambiguous phase (+/- 180 degrees) in
     # the polar axis due to the way it produces a shift-invariant image.  We
     # expect the true angle to be close to zero, so we'll invert anything beyond
