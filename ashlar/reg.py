@@ -1026,13 +1026,15 @@ class LayerAligner(object):
         n = self.metadata.num_images
         self.shifts = np.empty((n, 2))
         self.errors = np.empty(n)
+        self.shifts_bg = np.empty((n, 2))
         for i in range(n):
             if self.verbose:
                 sys.stdout.write("\r    aligning tile %d/%d" % (i + 1, n))
                 sys.stdout.flush()
-            shift, error = self.register(i)
+            shift, error, bg_shift = self.register(i)
             self.shifts[i] = shift
             self.errors[i] = error
+            self.shifts_bg[i] = bg_shift
         if self.verbose:
             print()
 
@@ -1040,6 +1042,15 @@ class LayerAligner(object):
         self.positions = (
             self.corrected_nominal_positions
             + self.shifts
+            + self.reference_aligner_positions
+            - self.reference_positions
+        )
+        # Positions implied by the sigma=0 detection shifts, used only for the
+        # camera-background discard in constrain_positions. Identical to
+        # self.positions when filter_sigma == 0.
+        self.bg_positions = (
+            self.corrected_nominal_positions
+            + self.shifts_bg
             + self.reference_aligner_positions
             - self.reference_positions
         )
@@ -1063,8 +1074,14 @@ class LayerAligner(object):
         # Discard camera background registration which will shift target
         # positions to reference aligner positions, due to strong
         # self-correlation of the sensor dark current pattern which dominates in
-        # low-signal images.
-        discard = (position_diffs == 0).all(axis=1)
+        # low-signal images. Detected from the sigma=0 registration
+        # (self.bg_positions): a sigma>0 filter suppresses the fixed pattern so
+        # the main registration no longer locks onto it. Identical to
+        # position_diffs when filter_sigma == 0.
+        bg_diffs = np.rint(
+            np.absolute(self.bg_positions - self.reference_aligner_positions) * 10
+        ) / 10
+        discard = (bg_diffs == 0).all(axis=1)
         # Discard any tile registration that error is infinite
         discard |= np.isinf(self.errors)
         # Take the median of registered shifts to determine the offset
@@ -1135,16 +1152,27 @@ class LayerAligner(object):
         self.positions[discard] = model[discard]
 
     def register(self, t):
-        """Return relative shift between images and the alignment error."""
+        """Return relative shift, alignment error, and a sigma=0 detection shift.
+
+        The sigma=0 shift is used by constrain_positions to detect camera
+        dark-current background registration. A sigma>0 filter suppresses the
+        fixed pattern so the main registration no longer locks onto it; we
+        register the same overlap a second time at sigma=0 purely for detection.
+        """
         its, ref_img, img = self.overlap(t)
         if np.any(np.array(its.shape) == 0):
-            return (0, 0), np.inf
+            return (0, 0), np.inf, (0, 0)
         shift, error = utils.register(ref_img, img, self.filter_sigma)
         # Add back in the fractional position difference that overlap() loses.
         shift = tuple(shift + its.offset_diff_frac)
+        if self.filter_sigma == 0:
+            bg_shift = shift
+        else:
+            bg_shift, _ = utils.register(ref_img, img, 0)
+            bg_shift = tuple(bg_shift + its.offset_diff_frac)
         # We don't use padding and thus can skip the math to account for it.
         assert (its.padding == 0).all(), "Unexpected non-zero padding"
-        return shift, error
+        return shift, error, bg_shift
 
     def intersection(self, t):
         corners1 = np.vstack([self.reference_positions[t],
@@ -1173,7 +1201,7 @@ class LayerAligner(object):
         return self.reader.metadata
 
     def debug(self, t):
-        shift, _ = self.register(t)
+        shift, _, _ = self.register(t)
         its, o1, o2 = self.overlap(t)
         w1 = utils.window(utils.whiten(o1, self.filter_sigma))
         w2 = utils.window(utils.whiten(o2, self.filter_sigma))
