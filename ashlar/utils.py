@@ -68,6 +68,22 @@ def window(img):
     return img * get_window(img.shape)
 
 
+def _shift_nearest(img, shift):
+    # Integer (nearest) shift with zero fill -- equivalent to
+    # scipy.ndimage.shift(img, shift, order=0, mode='constant') but a cheap
+    # slice/pad instead of the general interpolation routine. Used only to rank
+    # the quadrant candidates below, so nearest-pixel placement is sufficient.
+    sy = int(np.round(shift[0]))
+    sx = int(np.round(shift[1]))
+    out = np.zeros_like(img)
+    h, w = img.shape
+    r0, r1 = max(0, sy), min(h, h + sy)
+    c0, c1 = max(0, sx), min(w, w + sx)
+    if r0 < r1 and c0 < c1:
+        out[r0:r1, c0:c1] = img[r0 - sy:r1 - sy, c0 - sx:c1 - sx]
+    return out
+
+
 def register(img1, img2, sigma, upsample=10):
     img1w = window(whiten(img1, sigma))
     img2w = window(whiten(img2, sigma))
@@ -87,7 +103,7 @@ def register(img1, img2, sigma, upsample=10):
     shift_neg = shift_pos - shape
     shifts = list(itertools.product(*zip(shift_pos, shift_neg)))
     correlations = [
-        np.abs(np.sum(img1w * scipy.ndimage.shift(img2w, s, order=0)))
+        np.abs(np.sum(img1w * _shift_nearest(img2w, s)))
         for s in shifts
     ]
     idx = np.argmax(correlations)
