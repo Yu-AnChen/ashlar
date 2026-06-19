@@ -42,7 +42,7 @@ def tile_edge_score(reader, channel):
     return score
 
 
-def refine_angle(layer_aligner, rank=None, top_k=None):
+def refine_angle(layer_aligner, rank=None, top_k=None, sigma=1):
     tiles = np.arange(layer_aligner.reader.metadata.num_images)
     if rank is not None:
         tiles = tiles[rank]
@@ -55,8 +55,15 @@ def refine_angle(layer_aligner, rank=None, top_k=None):
         layer_aligner.overlap(t)[1:3]
         for t in tiles
     ])
+    # Rotation estimation uses fixed light smoothing (`sigma`), decoupled from
+    # the translation filter_sigma. Ground-truth sweeps (injected rotations on
+    # real overlaps, 3 datasets) showed: sigma=0 fails entirely (the sharp
+    # Laplacian can't resolve rotation); sigma>=2 over-smooths and biases the
+    # small (<1 deg) rotations that actually occur in refinement. sigma=1 gives
+    # the least-biased per-tile median there -- its larger per-tile spread is
+    # zero-mean and averages out in the nanmedian below.
     angles = Parallel(verbose=0, n_jobs=cpu_count())(
-        delayed(utils.register_angle)(img1, img2, layer_aligner.filter_sigma)
+        delayed(utils.register_angle)(img1, img2, sigma)
         for img1, img2 in img_pairs
     )
     return np.nanmedian(angles)
