@@ -2,14 +2,12 @@ import functools
 import itertools
 import os
 import warnings
+import cv2
 import skimage
 import scipy.fft
 import scipy.ndimage
 import numpy as np
 
-
-# Pre-calculate the Laplacian operator kernel. We'll always be using 2D images.
-_laplace_kernel = skimage.restoration.uft.laplacian(2, (3, 3))[1]
 
 # Threads scipy.fft uses for the FFTs inside phase_cross_correlation. 1 matches
 # scipy's default and ashlar's historical single-threaded behavior; raising it
@@ -18,13 +16,39 @@ _laplace_kernel = skimage.restoration.uft.laplacian(2, (3, 3))[1]
 # results. Override via the ASHLAR_FFT_WORKERS env var or by reassigning here.
 FFT_WORKERS = int(os.environ.get("ASHLAR_FFT_WORKERS", "1"))
 
+@functools.lru_cache
+def _log_kernels(sigma):
+    # scipy.ndimage.gaussian_laplace builds separable order-0 and order-2
+    # Gaussian-derivative kernels (truncate=4.0). Recover its exact 1D kernels
+    # as impulse responses so cv2.sepFilter2D reproduces it bit-for-bit.
+    radius = int(4.0 * sigma + 0.5)
+    delta = np.zeros(2 * radius + 1)
+    delta[radius] = 1.0
+    g0 = scipy.ndimage.gaussian_filter1d(delta, sigma, order=0, mode="constant")
+    g2 = scipy.ndimage.gaussian_filter1d(delta, sigma, order=2, mode="constant")
+    return g0.astype(np.float32), g2.astype(np.float32)
+
+
 def whiten(img, sigma):
+    # Laplacian-of-Gaussian high-pass, evaluated with cv2 (multithreaded SIMD).
+    # Output is value-identical to the historical scipy.ndimage implementation
+    # (convolve with the uft Laplacian / gaussian_laplace) to float32 precision.
     img = skimage.img_as_float32(img)
     if sigma == 0:
-        output = scipy.ndimage.convolve(img, _laplace_kernel)
-    else:
-        output = scipy.ndimage.gaussian_laplace(img, sigma)
-    return output
+        # The historical kernel is the *negative* discrete Laplacian
+        # (skimage.restoration.uft.laplacian); cv2.Laplacian(ksize=1) is the
+        # positive Laplacian, so negate to match the sign.
+        return -cv2.Laplacian(
+            img, cv2.CV_32F, ksize=1, borderType=cv2.BORDER_REFLECT
+        )
+    # gaussian_laplace = sum over axes of separable order-2 Gaussian-derivative
+    # convolutions. cv2.sepFilter2D(kernelX, kernelY) applies a 1-D kernel along
+    # x (axis 1) and y (axis 0); the order-2 kernel goes on the differentiated
+    # axis, the order-0 (smoothing) kernel on the other.
+    g0, g2 = _log_kernels(sigma)
+    d_axis0 = cv2.sepFilter2D(img, cv2.CV_32F, g0, g2, borderType=cv2.BORDER_REFLECT)
+    d_axis1 = cv2.sepFilter2D(img, cv2.CV_32F, g2, g0, borderType=cv2.BORDER_REFLECT)
+    return d_axis0 + d_axis1
 
 
 @functools.lru_cache
