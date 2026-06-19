@@ -1131,8 +1131,8 @@ class LayerAligner(object):
         self.discard = discard
         # Discarded tiles take the model position; kept tiles keep their measured
         # position (== model + a small, swirl-free local residual).
-        self.positions[discard] = model[discard]
         self.shifts_residual = self.positions - model
+        self.positions[discard] = model[discard]
 
     def register(self, t):
         """Return relative shift between images and the alignment error."""
