@@ -79,3 +79,47 @@ with tifffile.TiffWriter("03-ab.ome.tif", bigtiff=True) as tif:
             },
         }
         tif.write(ii, metadata=metadata)
+
+
+# ---------------------------------------------------------------------------- #
+#                     export fiducial channel and compress                     #
+# ---------------------------------------------------------------------------- #
+from ashlar import reg
+import pathlib
+import tifffile
+import numpy as np
+import tqdm
+
+out_dir = pathlib.Path(r"C:\Users\yc296\Desktop\ashlar-rotation-data")
+out_dir.mkdir(exist_ok=True, parents=True)
+
+files = r"""
+\\research.files.med.harvard.edu\HITS\lsp-data\cycif-production\215_Kidney_Xenotransplant_Human\26-06-04_XenoChimerismCycle3\Pysed2\LSP65674a_Nephrectomy_001_A107_Xeno_wHTG_Cycle1_v1_001503.pysed.ome.tif
+\\research.files.med.harvard.edu\HITS\lsp-data\cycif-production\215_Kidney_Xenotransplant_Human\26-06-04_XenoChimerismCycle3\Pysed2\LSP65674a_Nephrectomy_002_A107_Xeno_wHTG_Cycle2_v2_001512.pysed.ome.tif
+\\research.files.med.harvard.edu\HITS\lsp-data\cycif-production\215_Kidney_Xenotransplant_Human\26-06-04_XenoChimerismCycle3\Pysed2\LSP65674a_Nephrectomy_003_A107_Xeno_wHTG_Cycle3_v2_002155.pysed.ome.tif
+""".strip().split("\n")
+
+for ff in files[:]:
+    c1r = reg.BioformatsReader(ff)
+    out_path = out_dir / pathlib.Path(ff).name
+
+    positions = c1r.metadata.positions
+    positions *= [-1, 1]
+    pixel_size = c1r.metadata.pixel_size
+    use_channels = [0]
+    with tifffile.TiffWriter(out_path, bigtiff=True) as tif:
+        for ii, pp in enumerate(tqdm.tqdm(positions)):
+            img = np.asarray([c1r.read(ii, cc) for cc in use_channels])
+            metadata = {
+                "Pixels": {
+                    "PhysicalSizeX": pixel_size,
+                    "PhysicalSizeXUnit": "\u00b5m",
+                    "PhysicalSizeY": pixel_size,
+                    "PhysicalSizeYUnit": "\u00b5m",
+                },
+                "Plane": {
+                    "PositionX": [pp[1] * pixel_size] * len(img),
+                    "PositionY": [pp[0] * pixel_size] * len(img),
+                },
+            }
+            tif.write(img, metadata=metadata, compression="zstd", predictor=True)
