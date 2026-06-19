@@ -1,7 +1,6 @@
 import numpy as np
 import scipy.spatial
 import skimage.transform
-import tqdm
 
 from .. import reg, thumbnail, utils
 from . import preproc_reader, rotation_utils
@@ -38,7 +37,7 @@ def register(layer_aligner, t):
 
 def tile_edge_score(reader, channel):
     score = np.zeros(reader.metadata.num_images)
-    for i in tqdm.trange(reader.metadata.num_images):
+    for i in range(reader.metadata.num_images):
         score[i] = rotation_utils.var_of_laplacian(reader.read(i, channel))
     return score
 
@@ -56,7 +55,7 @@ def refine_angle(layer_aligner, rank=None, top_k=None):
         layer_aligner.overlap(t)[1:3]
         for t in tiles
     ])
-    angles = Parallel(verbose=1, n_jobs=cpu_count())(
+    angles = Parallel(verbose=0, n_jobs=cpu_count())(
         delayed(utils.register_angle)(img1, img2, layer_aligner.filter_sigma)
         for img1, img2 in img_pairs
     )
