@@ -400,11 +400,20 @@ class BioformatsMetadata(PlateMetadata):
 
 class BioformatsReader(PlateReader):
 
+    # Shared across ALL instances on purpose: BioFormats' Java readers rely on
+    # shared JVM/global state and are not safe for concurrent access even across
+    # separate reader instances, so all pixel reads are serialized process-wide.
+    # A per-instance lock is insufficient -- e.g. a multi-cycle assembly reads
+    # from one BioformatsReader per cycle in parallel threads, which would race.
+    # OmeTiffReader overrides read() with thread-local tifffile handles and does
+    # not use this lock, so the common OME-TIFF path stays fully parallel.
+    _read_lock = threading.Lock()
+
     def __init__(self, path, plate=None, well=None):
         self.path = path
         self.metadata = BioformatsMetadata(self.path)
         self.metadata.set_active_plate_well(plate, well)
-        self._lock = threading.Lock()
+        self._lock = BioformatsReader._read_lock
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -413,16 +422,22 @@ class BioformatsReader(PlateReader):
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self._lock = threading.Lock()
+        self._lock = BioformatsReader._read_lock
 
     def read(self, series, c):
         with self._lock:
             self.metadata._reader.setSeries(self.metadata.active_series[series])
             index = self.metadata._reader.getIndex(0, c, 0)
             byte_array = self.metadata._reader.openBytes(index)
-        dtype = self.metadata.pixel_dtype
-        shape = self.metadata.tile_size(series)
-        img = np.frombuffer(byte_array.tostring(), dtype=dtype).reshape(shape)
+            dtype = self.metadata.pixel_dtype
+            shape = self.metadata.tile_size(series)
+            # Materialize the Java buffer into a private array while still holding
+            # the lock: BioFormats readers may return a reference to an internal
+            # plane buffer that the next openBytes() call overwrites, so under
+            # parallel assembly the .tostring() copy must complete before another
+            # thread can read, or tiles get each other's pixels (non-deterministic
+            # "misplaced" tiles).
+            img = np.frombuffer(byte_array.tostring(), dtype=dtype).reshape(shape)
         return img
 
 
