@@ -72,7 +72,7 @@ def align_cycles(reader1, reader2, scale=0.05, angle=None):
         img1 = padded_img1
         img2 = padded_img2
     if angle is None:
-        angle = utils.register_angle(img1, img2, sigma=0)
+        angle = utils.register_angle(img1, img2, sigma=1)
         print(f'\r    estimated cycle rotation = {angle:.4f} degrees')
         if np.abs(angle) >= 5:
             print('\r    ignore large detected rotation: set to 0.01 for refinement')
