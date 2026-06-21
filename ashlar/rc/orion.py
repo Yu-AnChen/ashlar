@@ -34,6 +34,10 @@ def run_orion(
     ffp_paths: list[str | pathlib.Path] | None = None,
     dfp_paths: list[str | pathlib.Path] | None = None,
     only_qc: bool = False,
+    flip_x: bool = False,
+    flip_y: bool = False,
+    flip_mosaic_x: bool = False,
+    flip_mosaic_y: bool = False,
 ):
 
     start = int(time.perf_counter())
@@ -61,6 +65,8 @@ def run_orion(
         max_error=max_error,
         filter_sigma=filter_sigma,
         qc_dir=qc_dir,
+        flip_x=flip_x,
+        flip_y=flip_y,
         is_cli=False,
     )
 
@@ -72,9 +78,7 @@ def run_orion(
         pickle_path = qc_dir / f"{raw.stem}.ashlar.pkl"
 
         c2r = reg.BioformatsReader(str(raw))
-        if "rcpnl" not in raw.name:
-            _ = c2r.metadata.positions
-            c2r.metadata._positions *= [-1, 1]
+        run._apply_position_flip(c2r, raw.name, flip_x=flip_x, flip_y=flip_y)
         c21l = align_cycles.process_rotated_reader(
             c2r, c1e, channel=channel, max_shift=max_shift, filter_sigma=filter_sigma
         )
@@ -111,7 +115,14 @@ def run_orion(
     for aa, ffp_p, dfp_p in zip(aligners, ffp_list, dfp_list):
         run._apply_illumination(aa, ffp_path=ffp_p, dfp_path=dfp_p)
         mosaics.append(
-            reg.Mosaic(aa, shape=mosaic_shape, verbose=False, channels=output_channels)
+            reg.Mosaic(
+                aa,
+                shape=mosaic_shape,
+                verbose=False,
+                channels=output_channels,
+                flip_mosaic_x=flip_mosaic_x,
+                flip_mosaic_y=flip_mosaic_y,
+            )
         )
 
     start_mosaic = int(time.perf_counter())
@@ -128,16 +139,21 @@ def run_orion(
     writer.run()
 
     # ----------------------------- add channel name ----------------------------- #
+    # Channel naming is Orion-specific (reads names from `.pysed.ome.tif`
+    # sidecar metadata). Skip it for any other input format rather than failing.
     channel_names = [_channel_name_from_tif(pp) for pp in paths]
 
-    names = []
-    for nn in channel_names:
-        if output_channels is None:
-            names.extend(nn)
-            continue
-        names.extend(list(np.asarray(nn)[output_channels]))
+    if all(nn is not None for nn in channel_names):
+        names = []
+        for nn in channel_names:
+            if output_channels is None:
+                names.extend(nn)
+                continue
+            names.extend(list(np.asarray(nn)[output_channels]))
 
-    _add_channel_name(output_path, names)
+        _add_channel_name(output_path, names)
+    else:
+        print("\nNon-Orion input(s); skipping channel naming.")
 
     end = int(time.perf_counter())
     print("\nelapsed (mosaic):", datetime.timedelta(seconds=end - start_mosaic))
@@ -147,7 +163,8 @@ def run_orion(
 
 def _channel_name_from_tif(img_path):
     img_path = pathlib.Path(img_path)
-    assert img_path.name.endswith(".pysed.ome.tif")
+    if not img_path.name.endswith(".pysed.ome.tif"):
+        return None
 
     xml = _conversion.tiff2xml(img_path)
     root = lxml.etree.fromstring(xml)
@@ -200,13 +217,17 @@ def main(argv=sys.argv):
         help="Optional list of channels to include in the output file.",
     )
     parser.add_argument(
-        "--channel",
+        "-c",
+        "--align-channel",
+        dest="channel",
         type=int,
         default=0,
         help="Channel index to process.",
     )
     parser.add_argument(
-        "--max-shift",
+        "-m",
+        "--maximum-shift",
+        dest="max_shift",
         type=float,
         default=30.0,
         help="Maximum allowed shift.",
@@ -218,19 +239,23 @@ def main(argv=sys.argv):
         help="Gaussian filter sigma.",
     )
     parser.add_argument(
-        "--output-path",
+        "-o",
+        "--output",
+        dest="output_path",
         type=pathlib.Path,
         default=None,
         help="Path to save output results. Required if multiple inputs.",
     )
     parser.add_argument(
-        "--alpha",
+        "--stitch-alpha",
+        dest="alpha",
         type=float,
         default=0.01,
         help="Alpha parameter.",
     )
     parser.add_argument(
-        "--max-error",
+        "--maximum-error",
+        dest="max_error",
         type=float,
         default=None,
         help="Maximum error tolerance.",
@@ -271,8 +296,56 @@ def main(argv=sys.argv):
         action="store_true",
         help="Run alignment and write QC plots/pickles only; skip mosaic generation.",
     )
+    parser.add_argument(
+        "--flip-x",
+        default=False,
+        action="store_true",
+        help="Flip tile positions left-to-right",
+    )
+    parser.add_argument(
+        "--flip-y",
+        default=False,
+        action="store_true",
+        help="Flip tile positions top-to-bottom",
+    )
+    parser.add_argument(
+        "--flip-mosaic-x",
+        default=False,
+        action="store_true",
+        help="Flip output image left-to-right",
+    )
+    parser.add_argument(
+        "--flip-mosaic-y",
+        default=False,
+        action="store_true",
+        help="Flip output image top-to-bottom",
+    )
+    # Accepted for `ashlar` command-line compatibility. These either match
+    # orion's fixed behavior (--pyramid is always on, -q is honored implicitly)
+    # or name capabilities the orion CLI does not implement; the latter raise a
+    # clear error below if set to a non-default value.
+    parser.add_argument("--pyramid", default=False, action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-q", "--quiet", default=False, action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-f", "--filename-format", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--tile-size", type=int, default=1024, help=argparse.SUPPRESS)
+    parser.add_argument("--barrel-correction", type=float, default=0, help=argparse.SUPPRESS)
+    parser.add_argument("--plates", default=False, action="store_true", help=argparse.SUPPRESS)
 
     args = parser.parse_args(argv[1:])
+
+    unsupported = []
+    if args.filename_format is not None:
+        unsupported.append("-f/--filename-format (plain-TIFF series output)")
+    if args.tile_size != 1024:
+        unsupported.append("--tile-size")
+    if args.barrel_correction != 0:
+        unsupported.append("--barrel-correction")
+    if args.plates:
+        unsupported.append("--plates")
+    if unsupported:
+        parser.error(
+            "The orion CLI does not support: " + ", ".join(unsupported)
+        )
 
     # Handle output path logic
     if len(args.paths) > 1 and args.output_path is None:
@@ -298,6 +371,10 @@ def main(argv=sys.argv):
         ffp_paths=args.ffp,
         dfp_paths=args.dfp,
         only_qc=args.only_qc,
+        flip_x=args.flip_x,
+        flip_y=args.flip_y,
+        flip_mosaic_x=args.flip_mosaic_x,
+        flip_mosaic_y=args.flip_mosaic_y,
     )
 
 

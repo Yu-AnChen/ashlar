@@ -17,6 +17,27 @@ def _build_reader(path):
     return reg.BioformatsReader(str(path))
 
 
+def _apply_position_flip(reader, raw_name, flip_x=False, flip_y=False):
+    """Flip tile positions in place (positions are ordered ``[y, x]``).
+
+    Non-rcpnl inputs get an implicit y-flip (the longstanding Orion default);
+    the explicit ``flip_x``/``flip_y`` flags compose on top of that baseline, so
+    a bare run leaves current Orion output unchanged.
+    """
+    sy, sx = 1, 1
+    if "rcpnl" not in str(raw_name):
+        sy = -1
+    if flip_y:
+        sy *= -1
+    if flip_x:
+        sx *= -1
+    if (sy, sx) == (1, 1):
+        return
+    # Trigger lazy position init before mutating the backing array.
+    _ = reader.metadata.positions
+    reader.metadata._positions *= [sy, sx]
+
+
 def _apply_illumination(aligner, ffp_path=None, dfp_path=None):
     """Splice an IlluminationReader above the base reader in the chain.
 
@@ -68,6 +89,8 @@ def stitch(
     max_error: float | None = None,
     filter_sigma: float = 1.0,
     qc_dir: str | pathlib.Path | None = None,
+    flip_x: bool = False,
+    flip_y: bool = False,
     is_cli: bool = True,
 ):
     path = pathlib.Path(path).absolute()
@@ -82,9 +105,7 @@ def stitch(
     output_path = qc_dir / f"{raw.stem}.ashlar.pkl"
 
     c1r = _build_reader(raw)
-    if "rcpnl" not in raw_endwith:
-        _ = c1r.metadata.positions
-        c1r.metadata._positions *= [-1, 1]
+    _apply_position_flip(c1r, raw_endwith, flip_x=flip_x, flip_y=flip_y)
     c1e = reg.EdgeAligner(
         c1r,
         verbose=True,
