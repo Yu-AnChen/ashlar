@@ -1366,13 +1366,27 @@ class Mosaic(object):
                 img = self.correct_illumination(img, channel)
                 img = img * mask
                 utils.paste(out, img, position, func=utils.pastefunc_blend)
-        # Memory-conserving axis flips.
+        # Memory-conserving axis flips, done one row-block at a time. `out` may
+        # be a zarr array (parallel assemble writes to a temp zarr): operating
+        # per chunk-band rather than per row avoids reading-modifying-writing
+        # each compressed chunk ~chunk_height times (~1000x faster on real
+        # mosaics), and reversing in NumPy sidesteps zarr's lack of negative-step
+        # slicing. NumPy returns views, so copy blocks to avoid aliasing.
+        n = len(out)
+        chunks = getattr(out, "chunks", None)
+        block = chunks[0] if chunks else 4096
         if self.flip_mosaic_x:
-            for i in range(len(out)):
-                out[i] = out[i, ::-1]
+            for r in range(0, n, block):
+                out[r:r + block] = np.array(out[r:r + block])[:, ::-1]
         if self.flip_mosaic_y:
-            for i in range(len(out) // 2):
-                out[[i, -i - 1]] = out[[-i - 1, i]]
+            half = n // 2
+            for r in range(0, half, block):
+                top = slice(r, min(r + block, half))
+                bot = slice(n - top.stop, n - top.start)
+                t = np.array(out[top])
+                b = np.array(out[bot])
+                out[top] = b[::-1]
+                out[bot] = t[::-1]
         if verbose:
             print()
         return out
