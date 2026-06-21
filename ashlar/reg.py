@@ -12,7 +12,6 @@ import skimage.util
 import skimage.util.dtype
 import skimage.io
 import skimage.exposure
-import skimage.transform
 import sklearn.linear_model
 import networkx as nx
 import tifffile
@@ -1549,12 +1548,7 @@ class PyramidWriter:
             for y in range(0, zimg.shape[1], th):
                 for x in range(0, zimg.shape[2], tw):
                     a = zimg[c, y:y+th, x:x+tw, 0]
-                    a = skimage.transform.downscale_local_mean(
-                        a, (self.scale, self.scale)
-                    )
-                    if np.issubdtype(zimg.dtype, np.integer):
-                        a = np.around(a)
-                    a = a.astype(zimg.dtype)
+                    a = utils.cv2_downscale_local_mean(a, self.scale)
                     yield a
 
     def run(self):

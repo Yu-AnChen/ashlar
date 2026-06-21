@@ -405,3 +405,31 @@ def visualize_image(img):
 
     img = skimage.exposure.rescale_intensity(img, out_range=(0.0, 1.0))
     return skimage.exposure.equalize_adapthist(img)
+
+
+def cv2_downscale_local_mean(img, factor):
+    """Downsample by integer ``factor`` via area averaging (cv2).
+
+    Equivalent to skimage's downscale_local_mean for interior pixels but much
+    faster. The edge is replicated up to a multiple of ``factor`` before an
+    exact-factor INTER_AREA resize, which (a) keeps the ceil(dim/factor) output
+    size the pyramid level shapes expect and (b) avoids the edge darkening that
+    downscale_local_mean's zero-padding produces on odd dimensions.
+    """
+    assert img.ndim in [2, 3]
+    img = np.asarray(img)
+    axis_moved = False
+    channel_ax = np.argmin(img.shape)
+    if (img.ndim == 3) & (channel_ax != 2):
+        img = np.moveaxis(img, channel_ax, 2)
+        axis_moved = True
+    h, w = img.shape[:2]
+    ph, pw = (-h) % factor, (-w) % factor
+    if ph or pw:
+        img = cv2.copyMakeBorder(img, 0, ph, 0, pw, cv2.BORDER_REPLICATE)
+    simg = cv2.resize(
+        img, None, fx=1 / factor, fy=1 / factor, interpolation=cv2.INTER_AREA
+    )
+    if axis_moved:
+        simg = np.moveaxis(simg, 2, channel_ax)
+    return simg
