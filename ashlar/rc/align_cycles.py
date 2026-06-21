@@ -143,7 +143,7 @@ def process_rotated_reader(
     edgy_scores = tile_edge_score(c2r, c21l.channel)
     rank = np.argsort(edgy_scores)[::-1]
     angle = refine_angle(c21l, rank=rank, top_k=30)
-    print(f'\r    refined cycle rotation = {angle:.4f} degrees')
+    print(f'\r    refined cycle rotation = {angle:.4f} degrees', flush=True)
 
     c2rr, corrected_positions = _build_rotated_reader(c2r, c1e, angle, SCALE)
     c21lr = _make_layer_aligner(

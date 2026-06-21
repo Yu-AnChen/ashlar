@@ -40,7 +40,7 @@ def make_thumbnail(reader, channel=0, scale=0.05):
             img, dsize=None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA
         )
         utils.paste(mosaic, img_s, pos_s, utils.pastefunc_blend)
-    print()
+    print(flush=True)
     return mosaic
 
 
@@ -73,14 +73,14 @@ def align_cycles(reader1, reader2, scale=0.05, angle=None):
         img2 = padded_img2
     if angle is None:
         angle = utils.register_angle(img1, img2, sigma=1)
-        print(f'\r    estimated cycle rotation = {angle:.4f} degrees')
+        print(f'\r    estimated cycle rotation = {angle:.4f} degrees', flush=True)
         if np.abs(angle) >= 5:
-            print('\r    ignore large detected rotation: set to 0.01 for refinement')
+            print('\r    ignore large detected rotation: set to 0.01 for refinement', flush=True)
             angle = 0.01
     if angle != 0:
         img2 = rotate(img2, angle, resize=False, center=(0, 0))
     shifts = calculate_image_offset(img1, img2, int(1 / scale))
-    print(f'\r    estimated shift {shifts / scale}')
+    print(f'\r    estimated shift {shifts / scale}', flush=True)
     tform_steps = [
         ('translation', -reader2.metadata.origin[::-1]),
         ('scale', scale),
@@ -101,7 +101,7 @@ def align_cycles(reader1, reader2, scale=0.05, angle=None):
 def calculate_cycle_offset(reader1, reader2, scale=0.05):
     tform = align_cycles(reader1, reader2, scale, angle=0)
     offset = tform.translation[::-1]
-    print(f'\r    estimated cycle offset [y x] = {offset}')
+    print(f'\r    estimated cycle offset [y x] = {offset}', flush=True)
     return offset
 
 

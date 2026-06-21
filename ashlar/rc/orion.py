@@ -102,8 +102,8 @@ def run_orion(
         aligners.append(c21l)
 
     if only_qc:
-        print("\n--only-qc set; skipping mosaic generation.")
-        print("QC plots and pickles written to:", qc_dir)
+        print("\n--only-qc set; skipping mosaic generation.", flush=True)
+        print("QC plots and pickles written to:", qc_dir, flush=True)
         return
 
     mosaic_shape = c1e.mosaic_shape
@@ -153,11 +153,11 @@ def run_orion(
 
         _add_channel_name(output_path, names)
     else:
-        print("\nNon-Orion input(s); skipping channel naming.")
+        print("\nNon-Orion input(s); skipping channel naming.", flush=True)
 
     end = int(time.perf_counter())
-    print("\nelapsed (mosaic):", datetime.timedelta(seconds=end - start_mosaic))
-    print("elapsed (total):", datetime.timedelta(seconds=end - start))
+    print("\nelapsed (mosaic):", datetime.timedelta(seconds=end - start_mosaic), flush=True)
+    print("elapsed (total):", datetime.timedelta(seconds=end - start), flush=True)
     return
 
 

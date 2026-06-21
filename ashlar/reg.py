@@ -671,7 +671,7 @@ class EdgeAligner(object):
     def compute_threshold(self):
         if self.max_error is not None:
             if self.verbose:
-                print("    using explicit error threshold")
+                print("    using explicit error threshold", flush=True)
             return
         # Compute error threshold for rejecting aligments. We generate a
         # distribution of error scores for many known non-overlapping image
@@ -745,7 +745,7 @@ class EdgeAligner(object):
             img2 = self.reader.read(t2, self.channel)[offset2:offset2+w, :]
             _, errors[i] = utils.register(img1, img2, self.filter_sigma, upsample=1)
         if self.verbose:
-            print()
+            print(flush=True)
         self.errors_negative_sampled = errors
         self.max_error = np.percentile(errors, self.alpha * 100)
 
@@ -757,7 +757,7 @@ class EdgeAligner(object):
                 sys.stdout.flush()
             self.register_pair(t1, t2)
         if self.verbose:
-            print()
+            print(flush=True)
         self.all_errors = np.array([x[1] for x in self._cache.values()])
         # Set error values above the threshold to infinity.
         for k, v in self._cache.items():
@@ -1051,7 +1051,7 @@ class LayerAligner(object):
             self.errors[i] = error
             self.shifts_bg[i] = bg_shift
         if self.verbose:
-            print()
+            print(flush=True)
 
     def calculate_positions(self):
         self.positions = (
@@ -1388,7 +1388,7 @@ class Mosaic(object):
                 out[top] = b[::-1]
                 out[bot] = t[::-1]
         if verbose:
-            print()
+            print(flush=True)
         return out
 
     def correct_illumination(self, img, channel):
@@ -1492,7 +1492,7 @@ class PyramidWriter:
         n_jobs = min(len(tasks), joblib.cpu_count(), self.n_jobs)
         verboses = np.full(len(tasks), fill_value=False)
         verboses[::n_jobs] = True
-        print(f"Generating mosaics in parallel ({n_jobs} threads)")
+        print(f"Generating mosaics in parallel ({n_jobs} threads)", flush=True)
 
         with ThreadPoolExecutor(max_workers=n_jobs) as executor:
             futures = [
@@ -1513,14 +1513,14 @@ class PyramidWriter:
         th, tw = self.tile_shapes[0]
         for mi, mosaic in enumerate(self.mosaics):
             if self.verbose:
-                print(f"Cycle {mi}:")
+                print(f"Cycle {mi}:", flush=True)
             for channel in mosaic.channels:
                 if self.verbose:
-                    print(f"    Channel {channel}:")
+                    print(f"    Channel {channel}:", flush=True)
                 if self.parallel_assemble:
                     img = self.mosaics_zarr[mi][channel]
                     if self.verbose:
-                        print("        Reading from zarr")
+                        print("        Reading from zarr", flush=True)
                 else:
                     img = mosaic.assemble_channel(channel)
                 for y in range(0, h, th):
@@ -1588,12 +1588,12 @@ class PyramidWriter:
                 predictor=True,
             )
             if self.verbose:
-                print("Generating pyramid")
+                print("Generating pyramid", flush=True)
             for level, (shape, tile_shape) in enumerate(
                 zip(self.level_full_shapes[1:], self.tile_shapes[1:]), 1
             ):
                 if self.verbose:
-                    print(f"    Level {level} ({shape[2]} x {shape[1]})")
+                    print(f"    Level {level} ({shape[2]} x {shape[1]})", flush=True)
                 tiff.write(
                     data=self.subres_tiles(level),
                     shape=shape,
@@ -1604,7 +1604,7 @@ class PyramidWriter:
                     predictor=True,
                 )
                 if self.verbose:
-                    print()
+                    print(flush=True)
         if self.parallel_assemble:
             self.mosaics_zarr.store.rmdir()
 
@@ -1625,10 +1625,10 @@ class TiffListWriter:
         used_paths = set()
         for mi, mosaic in enumerate(self.mosaics):
             if self.verbose:
-                print(f"Cycle {mi}:")
+                print(f"Cycle {mi}:", flush=True)
             for ci, channel in enumerate(mosaic.channels):
                 if self.verbose:
-                    print(f"    Channel {channel}:")
+                    print(f"    Channel {channel}:", flush=True)
                 path = self.path_format.format(cycle=mi, channel=channel)
                 # FIXME: We would ideally report this and exit immediately
                 # rather than warn after all the alignment has been done, but
