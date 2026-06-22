@@ -77,7 +77,7 @@ def run_orion(
 
         pickle_path = qc_dir / f"{raw.stem}.ashlar.pkl"
 
-        c2r = reg.BioformatsReader(str(raw))
+        c2r = run._build_reader(str(raw))
         run._apply_position_flip(c2r, raw.name, flip_x=flip_x, flip_y=flip_y)
         c21l = align_cycles.process_rotated_reader(
             c2r, c1e, channel=channel, max_shift=max_shift, filter_sigma=filter_sigma
