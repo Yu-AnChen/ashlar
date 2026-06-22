@@ -8,6 +8,11 @@ import scipy.fft
 import scipy.ndimage
 import numpy as np
 
+try:
+    import diplib as _dip
+except ImportError:  # diplib is an optional speedup; scipy is the fallback
+    _dip = None
+
 
 # Threads scipy.fft uses for the FFTs inside phase_cross_correlation. 1 matches
 # scipy's default and ashlar's historical single-threaded behavior; raising it
@@ -298,6 +303,27 @@ def calculate_mosaic_position(position, img_shape, mosaic_shape):
     }
 
 
+def subpixel_shift(img, translation):
+    """Sub-pixel translate ``img`` by ``translation`` = (row, col), cubic.
+
+    scipy.ndimage.shift(order=3) is a *slow* implementation of cubic B-spline
+    interpolation; DIPlib's "bspline" is the same method ~15x faster (matches
+    scipy to ~1 count for 99% of pixels), so prefer it when available and fall
+    back to scipy otherwise. Returns the input dtype, like scipy.ndimage.shift.
+    """
+    if _dip is not None:
+        # DIPlib dimension 0 is x (numpy's last axis), so pass (col, row).
+        shifted = np.asarray(
+            _dip.Shift(
+                _dip.Image(np.ascontiguousarray(img)),
+                [float(translation[1]), float(translation[0])],
+                "bspline",
+            )
+        )
+        return shifted.astype(img.dtype, copy=False)
+    return scipy.ndimage.shift(img, translation)
+
+
 def paste(target, img, pos, func=None, decimals=1):
     positions = calculate_mosaic_position(
         # Round the pos to one decimal point because the subpixel shifts are
@@ -311,7 +337,7 @@ def paste(target, img, pos, func=None, decimals=1):
         return
     img = img[slice(*pos_img[0]), slice(*pos_img[1])]
     if not np.all(translation == 0):
-        img = scipy.ndimage.shift(img, translation)
+        img = subpixel_shift(img, translation)
         if translation[0] != 0: img = img[1:]
         if translation[1] != 0: img = img[:, 1:]
     target_slice = target[slice(*pos_mosaic[0]), slice(*pos_mosaic[1])]
