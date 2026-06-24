@@ -1274,11 +1274,18 @@ class Intersection(object):
 
 
 class Mosaic(object):
-
     def __init__(
-        self, aligner, shape, channels=None, ffp_path=None, dfp_path=None,
-        flip_mosaic_x=False, flip_mosaic_y=False, barrel_correction=None,
-        verbose=False
+        self,
+        aligner,
+        shape,
+        channels=None,
+        ffp_path=None,
+        dfp_path=None,
+        flip_mosaic_x=False,
+        flip_mosaic_y=False,
+        barrel_correction=None,
+        blend="average",
+        verbose=False,
     ):
         self.aligner = aligner
         self.shape = tuple(shape)
@@ -1286,9 +1293,12 @@ class Mosaic(object):
         self.flip_mosaic_x = flip_mosaic_x
         self.flip_mosaic_y = flip_mosaic_y
         self.barrel_correction = barrel_correction
+        assert blend in ("average", "winner"), f"unknown blend mode: {blend}"
+        self.blend = blend
         self.dtype = aligner.metadata.pixel_dtype
         self._load_correction_profiles(dfp_path, ffp_path)
         self.verbose = verbose
+        self._reduced = None
 
     def _sanitize_channels(self, channels):
         all_channels = range(self.aligner.metadata.num_channels)
@@ -1341,39 +1351,150 @@ class Mosaic(object):
         plt.close(fig)
         
 
+    def _validity(self):
+        """Per-tile geometric validity (1=data, fractional/0 at rotation/barrel
+        border). Shared across channels; ones when the reader does no geometry."""
+        if getattr(self, "_validity_map", None) is None:
+            reader = self.aligner.reader
+            while isinstance(reader, CachingReader):
+                reader = reader.reader
+            if hasattr(reader, "validity_mask"):
+                self._validity_map = reader.validity_mask().astype(np.float32)
+            else:
+                self._validity_map = np.ones(
+                    tuple(self.aligner.metadata.size), np.float32
+                )
+        return self._validity_map
+
+    def _plan(self, position):
+        """(mosaic_slice, img_slice, subpixel_translation) for placing a tile."""
+        p = utils.calculate_mosaic_position(
+            np.around(position, 1), self.aligner.metadata.size, self.shape
+        )
+        if p["mosaic"] is None:
+            return None
+        (r0, r1), (c0, c1) = p["mosaic"]
+        (a0, a1), (b0, b1) = p["img"]
+        return (
+            (slice(r0, r1), slice(c0, c1)),
+            (slice(a0, a1), slice(b0, b1)),
+            p["translation"],
+        )
+
+    def _tile_mask(self, si, do_mask):
+        return self.aligner.reader.tile_mask[str(si)] if do_mask else None
+
+    def _feather(self):
+        """Tile feather weight (cached; geometry-only, shared across channels)."""
+        if getattr(self, "_feather_map", None) is None:
+            self._feather_map = utils.feather_weight(tuple(self.aligner.metadata.size))
+        return self._feather_map
+
+    def build_blend(self, do_mask=False):
+        """Geometry-only weight reduction over all tiles, shared across channels.
+
+        ``_reduced`` is wsum=Σ f·v (average) or wmax=max f·v (winner) -- f the
+        feather, v the validity (× tissue mask when do_mask). Computed once per
+        mosaic (no pixel reads) and reused by every channel.
+
+        Accumulates straight into an in-RAM zstd-compressed, chunked zarr so the
+        dense mosaic-sized float32 weight map (~GBs) is never materialized; it is
+        a smooth field (~80% single-coverage) that compresses ~6x. Reads in
+        assemble_channel are tile-sized.
+        """
+        if self._reduced is not None:
+            return
+        from numcodecs import Blosc
+
+        f = self._feather()
+        v = self._validity()
+        chunks = tuple(int(min(1024, s)) for s in self.shape)
+        reduced = zarr.zeros(
+            self.shape,
+            chunks=chunks,
+            dtype=np.float32,
+            compressor=Blosc(cname="zstd", clevel=5, shuffle=Blosc.SHUFFLE),
+            store=zarr.storage.MemoryStore(),
+        )
+        for si, position in enumerate(self.aligner.positions):
+            plan = self._plan(position)
+            if plan is None:
+                continue
+            msl, isl, t = plan
+            w = f * v
+            tm = self._tile_mask(si, do_mask)
+            if tm is not None:
+                w = w * tm
+            w = w[isl]
+            if t[0] != 0:
+                w = w[1:]
+            if t[1] != 0:
+                w = w[:, 1:]
+            if self.blend == "winner":
+                reduced[msl] = np.maximum(np.asarray(reduced[msl]), w)
+            else:
+                reduced[msl] = np.asarray(reduced[msl]) + w
+        self._reduced = reduced
+
     def assemble_channel(self, channel, out=None, verbose=None, do_mask=False):
         if verbose is None:
             verbose = self.verbose
         num_tiles = len(self.aligner.positions)
         if out is None:
             out = np.zeros(self.shape, self.dtype)
-        else:
-            if out.shape != self.shape:
-                raise ValueError(
-                    f"out array shape {out.shape} does not match Mosaic"
-                    f" shape {self.shape}"
-                )
+        elif out.shape != self.shape:
+            raise ValueError(
+                f"out array shape {out.shape} does not match Mosaic shape {self.shape}"
+            )
+        # Geometric weighted-accumulation blend. The shared weight reduction
+        # (_reduced) is geometry-only; per channel we splat each tile's
+        # feather-weighted (premultiplied) contribution and normalize by it.
+        self.build_blend(do_mask)
+        winner = self.blend == "winner"
+        f = self._feather()
+        # validity is only needed per-channel for the winner score; for average
+        # it enters solely via the precomputed wsum in build_blend.
+        v = self._validity() if winner else None
         for si, position in enumerate(self.aligner.positions):
             if verbose:
                 sys.stdout.write(f"\r        merging tile {si + 1}/{num_tiles}")
                 sys.stdout.flush()
-
-            mask = np.ones(
-                self.aligner.metadata.size,
-                dtype=self.aligner.metadata.pixel_dtype,
-            )
-            if do_mask:
-                mask *= self.aligner.reader.tile_mask[str(si)]
-            if not np.any(mask):
+            plan = self._plan(position)
+            if plan is None:
                 continue
-            mosaic_slice = utils.calculate_mosaic_position(
-                position, self.aligner.metadata.size, self.shape
-            )["mosaic"]
-            if mosaic_slice is not None:
-                img = self.aligner.reader.read(c=channel, series=si)
-                img = self.correct_illumination(img, channel)
-                img = img * mask
-                utils.paste(out, img, position, func=utils.pastefunc_blend)
+            msl, isl, t = plan
+            tm = self._tile_mask(si, do_mask)
+            if tm is not None and not np.any(tm):
+                continue
+            # average -> numerator = feather(× tissue); winner -> score = feather·validity(× tissue)
+            score = (f * v) if winner else f
+            if tm is not None:
+                score = score * tm
+            img = self.aligner.reader.read(c=channel, series=si)
+            img = self.correct_illumination(img, channel)
+            img = img[isl]
+            score = score[isl]
+            if not np.all(t == 0):
+                img = utils.subpixel_shift(img, t)
+                if t[0] != 0:
+                    img = img[1:]
+                    score = score[1:]
+                if t[1] != 0:
+                    img = img[:, 1:]
+                    score = score[:, 1:]
+            if np.issubdtype(img.dtype, np.floating):
+                np.clip(img, 0, 1, img)
+            img = utils.dtype_convert(img, self.dtype)
+            red = np.asarray(self._reduced[msl])
+            dst = np.asarray(out[msl])
+            if winner:
+                win = score >= red - 1e-6
+                dst[win] = img[win]
+            else:
+                dst = dst + np.round(score / np.maximum(red, 1e-9) * img).astype(
+                    self.dtype
+                )
+            out[msl] = dst
         # Memory-conserving axis flips, done one row-block at a time. `out` may
         # be a zarr array (parallel assemble writes to a temp zarr): operating
         # per chunk-band rather than per row avoids reading-modifying-writing
@@ -1421,11 +1542,18 @@ def _open_zarr_readonly(store):
 
 
 class PyramidWriter:
-
     def __init__(
-        self, mosaics, path, scale=2, tile_size=1024, peak_size=1024,
-        parallel_assemble=True, do_mask_tissue=False, n_jobs=None, verbose=False,
-        temp_dir=None
+        self,
+        mosaics,
+        path,
+        scale=2,
+        tile_size=1024,
+        peak_size=1024,
+        parallel_assemble=True,
+        do_mask_tissue=False,
+        n_jobs=None,
+        verbose=False,
+        temp_dir=None,
     ):
         if any(m.shape != mosaics[0].shape for m in mosaics[1:]):
             raise ValueError("mosaics must all have the same shape")
@@ -1521,6 +1649,9 @@ class PyramidWriter:
                 mosaic.aligner.reader._cache = {}
                 mosaic.aligner.reader.channel = -1
             self._zarr_arrays[mi] = {}
+            # Build the shared, geometry-only blend weights once per mosaic so the
+            # parallel per-channel splats below just reuse them (no reads here).
+            mosaic.build_blend(self.do_mask_tissue)
             for channel in mosaic.channels:
                 arr = zarr.open_array(
                     str(self._zarr_tmpdir / str(mi) / str(channel)),

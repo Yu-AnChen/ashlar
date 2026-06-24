@@ -91,6 +91,26 @@ class PreprocReader(reg.Reader):
     def path(self):
         return self.reader.path
 
+    def validity_mask(self):
+        """Geometric coverage of real data after preprocessing (0=border, 1=data).
+
+        Applies the same flip/rotation/crop as ``read`` to a ones array, so the
+        rotation/barrel zero-border is described by geometry rather than guessed
+        from pixel values. Fractional at the antialiased edge (partial coverage).
+        """
+        m = np.ones(np.array(self.reader.metadata.size, dtype=int), dtype=np.float32)
+        if self.barrel_k != 0:
+            m = transform.barrel_correction(m, self.barrel_k, cval=0)
+        if self.flip_x:
+            m = np.fliplr(m)
+        if self.flip_y:
+            m = np.flipud(m)
+        if self.angle != 0:
+            m = skimage.transform.rotate(m, self.angle, preserve_range=True)
+        if self.offsets.any():
+            m = utils.crop(m, self.offsets, self.metadata.size)
+        return m.astype(np.float32)
+
     def read(self, series, c):
         img = self.reader.read(series=series, c=c)
         dtype = self.metadata.pixel_dtype

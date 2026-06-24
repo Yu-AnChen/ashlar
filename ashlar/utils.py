@@ -511,6 +511,26 @@ def subpixel_shift(img, translation):
     return scipy.ndimage.shift(img, translation)
 
 
+def feather_weight(shape, eps=1e-3):
+    """Separable edge-distance feather over a tile, normalized to (0, 1].
+
+    Used as the geometric blend weight: ~1 at the tile center, tapering toward
+    the edges, floored to ``eps`` so no covered pixel has zero weight.
+
+    The weight is the *product* of the per-axis edge distances, not their
+    ``min``. Both give the same linear ramp across a straight (pairwise) seam,
+    but ``min`` produces a square-pyramid with diagonal ridgelines, so where
+    three or four tiles meet the normalized partition is a hard diagonal crease.
+    The product is smooth (no ridge), turning that corner into a gentle curve
+    while leaving straight-seam blending identical.
+    """
+    h, w = shape
+    yy = np.minimum(np.arange(h) + 1, h - np.arange(h)).astype(np.float32)
+    xx = np.minimum(np.arange(w) + 1, w - np.arange(w)).astype(np.float32)
+    f = yy[:, None] * xx[None, :]
+    return np.maximum(f / f.max(), eps)
+
+
 def paste(target, img, pos, func=None, decimals=1):
     positions = calculate_mosaic_position(
         # Round the pos to one decimal point because the subpixel shifts are
