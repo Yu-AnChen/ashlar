@@ -214,6 +214,7 @@ def assemble(
     channels: list[int] | None = None,
     ffp_path: str | pathlib.Path | None = None,
     dfp_path: str | pathlib.Path | None = None,
+    temp_dir: str | pathlib.Path | None = None,
     is_cli: bool = True,
 ):
     path = pathlib.Path(path).absolute()
@@ -227,7 +228,8 @@ def assemble(
         aligner, shape=aligner.mosaic_shape, verbose=False, channels=channels
     )
     writer = reg.PyramidWriter(
-        [mosaic], output_path, parallel_assemble=True, verbose=True
+        [mosaic], output_path, parallel_assemble=True, verbose=True,
+        temp_dir=temp_dir,
     )
     writer.run()
 

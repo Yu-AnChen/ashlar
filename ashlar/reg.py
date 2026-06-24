@@ -1,5 +1,8 @@
 import sys
+import os
 import math
+import shutil
+import tempfile
 import threading
 import warnings
 import xml.etree.ElementTree
@@ -1399,11 +1402,24 @@ class Mosaic(object):
         return img
 
 
+def _open_zarr_readonly(store):
+    """Open a tifffile zarr *array* store read-only, across zarr v2 and v3.
+
+    ``tifffile.aszarr(..., level=, squeeze=False)`` yields a single array store.
+    Use ``open_array`` rather than ``open``: zarr v3's ``open`` assumes group
+    semantics and raises GroupNotFoundError on these array stores, whereas
+    ``open_array`` auto-detects the store's zarr format (tifffile emits v2 on
+    older zarr, v3 on newer) and works on both v2 and v3.
+    """
+    return zarr.open_array(store, mode="r")
+
+
 class PyramidWriter:
 
     def __init__(
         self, mosaics, path, scale=2, tile_size=1024, peak_size=1024,
-        parallel_assemble=True, do_mask_tissue=False, n_jobs=None, verbose=False
+        parallel_assemble=True, do_mask_tissue=False, n_jobs=None, verbose=False,
+        temp_dir=None
     ):
         if any(m.shape != mosaics[0].shape for m in mosaics[1:]):
             raise ValueError("mosaics must all have the same shape")
@@ -1418,6 +1434,10 @@ class PyramidWriter:
         self.do_mask_tissue = do_mask_tissue
         self.n_jobs = n_jobs
         self.verbose = verbose
+        # Parent dir for the scratch zarr written during parallel assembly.
+        # Precedence (resolved in assemble_all): this arg, then $ASHLAR_TMPDIR,
+        # then the output file's parent dir.
+        self.temp_dir = temp_dir
 
     @property
     def ref_mosaic(self):
@@ -1466,25 +1486,45 @@ class PyramidWriter:
     def assemble_all(self):
         from concurrent.futures import ThreadPoolExecutor
 
-        self.cache_path = f"{pathlib.Path(self.path)}.zarr"
-        root = zarr.open(self.cache_path, mode="w")
+        # Scratch zarr parent: explicit temp_dir, else $ASHLAR_TMPDIR, else the
+        # output's parent dir (keeps the historical default and guarantees space
+        # on the same volume as the multi-GB output).
+        parent = pathlib.Path(
+            self.temp_dir
+            or os.environ.get("ASHLAR_TMPDIR")
+            or pathlib.Path(self.path).parent
+        )
+        parent.mkdir(parents=True, exist_ok=True)
+        utils.warn_if_slow_dir(parent)
+        # Unique scratch dir so concurrent runs writing the same output don't
+        # collide; removed in run()'s finally block.
+        self._zarr_tmpdir = pathlib.Path(tempfile.mkdtemp(
+            prefix=f"{pathlib.Path(self.path).stem}-", suffix=".zarr", dir=parent
+        ))
 
         tasks = []
-        root.create_groups(*range(len(self.mosaics)))
+        # One zarr array per (cycle, channel), created with the version-stable
+        # top-level zarr.open_array (avoids zarr-v2-only Group.create_groups /
+        # Group.zeros). Keep handles in a nested dict for base_tiles().
+        self._zarr_arrays = {}
+        dtype = self.ref_mosaic.aligner.metadata.pixel_dtype
         for mi, mosaic in enumerate(self.mosaics):
             if self.do_mask_tissue:
                 mosaic.make_tissue_mask(qc_dir=pathlib.Path(self.path).parent)
             if isinstance(mosaic.aligner.reader, CachingReader):
                 mosaic.aligner.reader._cache = {}
                 mosaic.aligner.reader.channel = -1
+            self._zarr_arrays[mi] = {}
             for channel in mosaic.channels:
-                root[mi].zeros(
-                    channel,
+                arr = zarr.open_array(
+                    str(self._zarr_tmpdir / str(mi) / str(channel)),
+                    mode="w",
                     shape=self.base_shape,
-                    dtype=self.ref_mosaic.aligner.metadata.pixel_dtype,
+                    dtype=dtype,
                     chunks=self.tile_shapes[0],
                 )
-                tasks.append((mosaic.assemble_channel, channel, root[mi][channel]))
+                self._zarr_arrays[mi][channel] = arr
+                tasks.append((mosaic.assemble_channel, channel, arr))
         cpu_count = utils.cpu_count()
         if self.n_jobs is None:
             self.n_jobs = cpu_count
@@ -1505,7 +1545,6 @@ class PyramidWriter:
                 for (m_func, channel, out_zarr), v in zip(tasks, verboses)
             ]
             _ = [ff.result() for ff in futures]
-        self.mosaics_zarr = root
 
     def base_tiles(self):
         h, w = self.base_shape
@@ -1517,7 +1556,7 @@ class PyramidWriter:
                 if self.verbose:
                     print(f"    Channel {channel}:", flush=True)
                 if self.parallel_assemble:
-                    img = self.mosaics_zarr[mi][channel]
+                    img = self._zarr_arrays[mi][channel]
                     if self.verbose:
                         print("        Reading from zarr", flush=True)
                 else:
@@ -1535,21 +1574,23 @@ class PyramidWriter:
         assert level >= 1
         num_channels, h, w = self.level_full_shapes[level]
         tshape = self.tile_shapes[level] or (h, w)
-        tiff = tifffile.TiffFile(self.path)
-        zimg = zarr.open(tiff.aszarr(series=0, level=level-1, squeeze=False))
-        for c in range(num_channels):
-            if self.verbose:
-                sys.stdout.write(
-                    f"\r        processing channel {c + 1}/{num_channels}"
-                )
-                sys.stdout.flush()
-            th = tshape[0] * self.scale
-            tw = tshape[1] * self.scale
-            for y in range(0, zimg.shape[1], th):
-                for x in range(0, zimg.shape[2], tw):
-                    a = zimg[c, y:y+th, x:x+tw, 0]
-                    a = utils.cv2_downscale_local_mean(a, self.scale)
-                    yield a
+        with tifffile.TiffFile(self.path) as tiff:
+            zimg = _open_zarr_readonly(
+                tiff.aszarr(series=0, level=level-1, squeeze=False)
+            )
+            for c in range(num_channels):
+                if self.verbose:
+                    sys.stdout.write(
+                        f"\r        processing channel {c + 1}/{num_channels}"
+                    )
+                    sys.stdout.flush()
+                th = tshape[0] * self.scale
+                tw = tshape[1] * self.scale
+                for y in range(0, zimg.shape[1], th):
+                    for x in range(0, zimg.shape[2], tw):
+                        a = zimg[c, y:y+th, x:x+tw, 0]
+                        a = utils.cv2_downscale_local_mean(a, self.scale)
+                        yield a
 
     def run(self):
         dtype = self.ref_mosaic.aligner.metadata.pixel_dtype
@@ -1563,44 +1604,50 @@ class PyramidWriter:
                 "PhysicalSizeY": pixel_size, "PhysicalSizeYUnit": "\u00b5m"
             },
         }
-        if self.parallel_assemble and (not hasattr(self, 'mosaics_zarr')):
-            self.assemble_all()
-        with tifffile.TiffWriter(self.path, ome=True, bigtiff=True) as tiff:
-            tiff.write(
-                data=self.base_tiles(),
-                metadata=metadata,
-                software=software.encode("utf-8"),
-                shape=self.level_full_shapes[0],
-                subifds=int(self.num_levels - 1),
-                dtype=dtype,
-                tile=self.tile_shapes[0],
-                resolution=(resolution_cm, resolution_cm),
-                resolutionunit="CENTIMETER",
-                # FIXME Propagate this from input files (especially RGB).
-                photometric="minisblack",
-                compression="adobe_deflate",
-                predictor=True,
-            )
-            if self.verbose:
-                print("Generating pyramid", flush=True)
-            for level, (shape, tile_shape) in enumerate(
-                zip(self.level_full_shapes[1:], self.tile_shapes[1:]), 1
-            ):
-                if self.verbose:
-                    print(f"    Level {level} ({shape[2]} x {shape[1]})", flush=True)
+        try:
+            if self.parallel_assemble and (not hasattr(self, '_zarr_arrays')):
+                self.assemble_all()
+            with tifffile.TiffWriter(self.path, ome=True, bigtiff=True) as tiff:
                 tiff.write(
-                    data=self.subres_tiles(level),
-                    shape=shape,
-                    subfiletype=1,
+                    data=self.base_tiles(),
+                    metadata=metadata,
+                    software=software.encode("utf-8"),
+                    shape=self.level_full_shapes[0],
+                    subifds=int(self.num_levels - 1),
                     dtype=dtype,
-                    tile=tile_shape,
+                    tile=self.tile_shapes[0],
+                    resolution=(resolution_cm, resolution_cm),
+                    resolutionunit="CENTIMETER",
+                    # FIXME Propagate this from input files (especially RGB).
+                    photometric="minisblack",
                     compression="adobe_deflate",
                     predictor=True,
                 )
                 if self.verbose:
-                    print(flush=True)
-        if self.parallel_assemble:
-            self.mosaics_zarr.store.rmdir()
+                    print("Generating pyramid", flush=True)
+                for level, (shape, tile_shape) in enumerate(
+                    zip(self.level_full_shapes[1:], self.tile_shapes[1:]), 1
+                ):
+                    if self.verbose:
+                        print(f"    Level {level} ({shape[2]} x {shape[1]})", flush=True)
+                    tiff.write(
+                        data=self.subres_tiles(level),
+                        shape=shape,
+                        subfiletype=1,
+                        dtype=dtype,
+                        tile=tile_shape,
+                        compression="adobe_deflate",
+                        predictor=True,
+                    )
+                    if self.verbose:
+                        print(flush=True)
+        finally:
+            # Always remove the scratch zarr, even on error/interrupt. rmtree is
+            # version-agnostic (avoids zarr-v2-only store.rmdir()).
+            tmpdir = getattr(self, "_zarr_tmpdir", None)
+            if tmpdir is not None:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                self._zarr_tmpdir = None
 
 
 class TiffListWriter:

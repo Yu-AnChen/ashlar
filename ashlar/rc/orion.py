@@ -38,6 +38,7 @@ def run_orion(
     flip_y: bool = False,
     flip_mosaic_x: bool = False,
     flip_mosaic_y: bool = False,
+    temp_dir: str | pathlib.Path | None = None,
 ):
 
     start = int(time.perf_counter())
@@ -135,6 +136,7 @@ def run_orion(
         do_mask_tissue=do_mask_tissue,
         n_jobs=n_jobs,
         verbose=True,
+        temp_dir=temp_dir,
     )
     writer.run()
 
@@ -320,6 +322,17 @@ def main(argv=sys.argv):
         action="store_true",
         help="Flip output image top-to-bottom",
     )
+    parser.add_argument(
+        "--temp-dir",
+        type=pathlib.Path,
+        default=None,
+        help=(
+            "Parent directory for the intermediate zarr written during assembly."
+            " Defaults to $ASHLAR_TMPDIR, else the output file's directory. Point"
+            " at fast local scratch (e.g. an SSD) when the output is on slow or"
+            " cloud-synced storage."
+        ),
+    )
     # Accepted for `ashlar` command-line compatibility. These either match
     # orion's fixed behavior (--pyramid is always on, -q is honored implicitly)
     # or name capabilities the orion CLI does not implement; the latter raise a
@@ -375,6 +388,7 @@ def main(argv=sys.argv):
         flip_y=args.flip_y,
         flip_mosaic_x=args.flip_mosaic_x,
         flip_mosaic_y=args.flip_mosaic_y,
+        temp_dir=args.temp_dir,
     )
 
 

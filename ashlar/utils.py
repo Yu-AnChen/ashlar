@@ -1,6 +1,10 @@
 import functools
 import itertools
 import os
+import pathlib
+import re
+import subprocess
+import sys
 import warnings
 import cv2
 import skimage
@@ -67,6 +71,141 @@ def cpu_count():
     if limit:
         count = min(count, limit)
     return max(1, int(count))
+
+
+# Path components that indicate a cloud-sync folder. These sync to a remote
+# service in the background, so writing tens of GB of scratch zarr into them is
+# slow even when the underlying disk is a fast SSD -- the medium checks below
+# can't see that, so the name heuristic is what actually catches this case.
+_CLOUD_SYNC_MARKERS = (
+    "Dropbox", "OneDrive", "Google Drive", "GoogleDrive",
+    "CloudStorage", "com~apple~CloudDocs",
+)
+# Network filesystem types (Linux /proc/mounts fstype field).
+_NETWORK_FSTYPES = ("nfs", "nfs4", "cifs", "smbfs", "smb", "afpfs", "fuse.sshfs")
+
+
+def _path_device(path):
+    """Backing device string for ``path`` via ``df``, or None. May be a
+    ``/dev/...`` node (local) or a remote spec like ``//server/share`` (network)."""
+    try:
+        out = subprocess.run(
+            ["df", str(path)], capture_output=True, text=True, timeout=5
+        ).stdout.splitlines()
+        return out[1].split()[0] if len(out) > 1 else None
+    except Exception:
+        return None
+
+
+def _cloud_sync_marker(path):
+    """Name of the cloud-sync service if ``path`` lives under one, else None."""
+    try:
+        parts = pathlib.Path(path).expanduser().resolve().parts
+    except Exception:
+        parts = pathlib.Path(path).parts
+    for part in parts:
+        for marker in _CLOUD_SYNC_MARKERS:
+            if marker.lower() in part.lower():
+                return marker
+    return None
+
+
+def _is_network_dir(path, dev=None):
+    """True if ``path`` is on a network filesystem, False if local, None if unknown.
+
+    ``dev`` (the ``_path_device(path)`` result) may be passed in to avoid a
+    repeat ``df`` call; it is only consulted on macOS.
+    """
+    if sys.platform == "darwin":
+        if dev is None:
+            dev = _path_device(path)
+        if dev is None:
+            return None
+        # Network mounts (SMB/AFP/NFS) show as a remote spec, not a /dev node.
+        return not dev.startswith("/dev/")
+    if sys.platform.startswith("linux"):
+        try:
+            target = str(pathlib.Path(path).resolve())
+            best_len, best_type = -1, None
+            for line in pathlib.Path("/proc/mounts").read_text().splitlines():
+                fields = line.split()
+                if len(fields) < 3:
+                    continue
+                mountpoint, fstype = fields[1], fields[2]
+                if (target == mountpoint or target.startswith(mountpoint.rstrip("/") + "/")) \
+                        and len(mountpoint) > best_len:
+                    best_len, best_type = len(mountpoint), fstype
+            if best_type is None:
+                return None
+            return best_type in _NETWORK_FSTYPES or best_type.startswith("fuse.")
+        except Exception:
+            return None
+    return None
+
+
+def _is_rotational_dir(path, dev=None):
+    """True if ``path``'s backing disk is rotational (HDD), False if SSD, None if unknown.
+
+    ``dev`` (the ``_path_device(path)`` result) may be passed in to avoid a
+    repeat ``df`` call.
+    """
+    if dev is None:
+        dev = _path_device(path)
+    if dev is None or not dev.startswith("/dev/"):
+        return None
+    if sys.platform == "darwin":
+        try:
+            info = subprocess.run(
+                ["diskutil", "info", dev], capture_output=True, text=True, timeout=5
+            ).stdout
+        except Exception:
+            return None
+        for line in info.splitlines():
+            if "Solid State" in line:
+                return "No" in line.split(":", 1)[1]
+        return None
+    if sys.platform.startswith("linux"):
+        base = pathlib.Path(dev).name
+        # Strip partition suffix: sda2 -> sda, nvme0n1p2 -> nvme0n1, mmcblk0p1 -> mmcblk0.
+        candidates = [base, re.sub(r"p?\d+$", "", base)]
+        for cand in candidates:
+            rot = pathlib.Path("/sys/block") / cand / "queue" / "rotational"
+            try:
+                return rot.read_text().strip() == "1"
+            except OSError:
+                continue
+        return None
+    return None
+
+
+def warn_if_slow_dir(path):
+    """Print a one-line performance warning if ``path`` looks like slow scratch.
+
+    Best-effort and side-effect-free: catches cloud-sync folders (Dropbox/OneDrive/
+    iCloud/Drive -- by path, since they sit on a fast SSD), network filesystems, and
+    rotational HDDs. Never raises; an undetectable case simply produces no warning.
+    """
+    try:
+        marker = _cloud_sync_marker(path)
+        if marker:
+            reason = f"a cloud-sync folder ({marker})"
+        else:
+            # Resolve the backing device once; reused by both medium checks.
+            dev = _path_device(path)
+            if _is_network_dir(path, dev) is True:
+                reason = "a network filesystem"
+            elif _is_rotational_dir(path, dev) is True:
+                reason = "a spinning disk (HDD)"
+            else:
+                return
+        print(
+            f"WARNING: intermediate data will be written to {reason}, which can be slow."
+            f" Use --temp-dir (or set $ASHLAR_TMPDIR) to point at fast local scratch"
+            f" such as an SSD.",
+            flush=True,
+        )
+    except Exception:
+        pass
 
 
 @functools.lru_cache
