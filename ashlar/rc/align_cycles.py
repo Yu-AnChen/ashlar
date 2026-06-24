@@ -50,11 +50,11 @@ def refine_angle(layer_aligner, rank=None, top_k=None, sigma=1):
         top_k = len(tiles)
     top_k = min(top_k, len(tiles))
     tiles = tiles[:top_k]
-    from joblib import Parallel, cpu_count, delayed
-    img_pairs = filter(lambda x: x[0].size > 0, [
+    from concurrent.futures import ThreadPoolExecutor
+    img_pairs = list(filter(lambda x: x[0].size > 0, [
         layer_aligner.overlap(t)[1:3]
         for t in tiles
-    ])
+    ]))
     # Rotation estimation uses fixed light smoothing (`sigma`), decoupled from
     # the translation filter_sigma. Ground-truth sweeps (injected rotations on
     # real overlaps, 3 datasets) showed: sigma=0 fails entirely (the sharp
@@ -62,10 +62,18 @@ def refine_angle(layer_aligner, rank=None, top_k=None, sigma=1):
     # small (<1 deg) rotations that actually occur in refinement. sigma=1 gives
     # the least-biased per-tile median there -- its larger per-tile spread is
     # zero-mean and averages out in the nanmedian below.
-    angles = Parallel(verbose=0, n_jobs=cpu_count())(
-        delayed(utils.register_angle)(img1, img2, sigma)
-        for img1, img2 in img_pairs
-    )
+    # register_angle is numpy/FFT-heavy and releases the GIL, so threads give
+    # real parallelism here without forking worker processes (which previously,
+    # via joblib's loky backend, left a ~4 GB idle pool resident for the rest of
+    # the run). The overlap arrays are already materialized above, so the
+    # threaded calls share read-only inputs with no cross-thread state.
+    if not img_pairs:
+        return np.nan
+    n_workers = min(len(img_pairs), utils.cpu_count())
+    with ThreadPoolExecutor(max_workers=n_workers) as executor:
+        angles = list(executor.map(
+            lambda pair: utils.register_angle(pair[0], pair[1], sigma), img_pairs
+        ))
     return np.nanmedian(angles)
 
 

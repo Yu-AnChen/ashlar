@@ -1464,7 +1464,6 @@ class PyramidWriter:
         return tile_shapes
 
     def assemble_all(self):
-        import joblib
         from concurrent.futures import ThreadPoolExecutor
 
         self.cache_path = f"{pathlib.Path(self.path)}.zarr"
@@ -1486,9 +1485,10 @@ class PyramidWriter:
                     chunks=self.tile_shapes[0],
                 )
                 tasks.append((mosaic.assemble_channel, channel, root[mi][channel]))
+        cpu_count = utils.cpu_count()
         if self.n_jobs is None:
-            self.n_jobs = joblib.cpu_count()
-        n_jobs = min(len(tasks), joblib.cpu_count(), self.n_jobs)
+            self.n_jobs = cpu_count
+        n_jobs = min(len(tasks), cpu_count, self.n_jobs)
         verboses = np.full(len(tasks), fill_value=False)
         verboses[::n_jobs] = True
         print(f"Generating mosaics in parallel ({n_jobs} threads)", flush=True)

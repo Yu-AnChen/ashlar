@@ -25,7 +25,6 @@ requires = [
     'palom>=2024.9.1',
     'lxml>=5.2.1',
     'ome-types>=0.6',
-    'joblib<1.5',
     'compress-bg @ https://github.com/Yu-AnChen/compress-bg.git',
 ]
 

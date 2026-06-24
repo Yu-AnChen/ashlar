@@ -21,6 +21,54 @@ except ImportError:  # diplib is an optional speedup; scipy is the fallback
 # results. Override via the ASHLAR_FFT_WORKERS env var or by reassigning here.
 FFT_WORKERS = int(os.environ.get("ASHLAR_FFT_WORKERS", "1"))
 
+
+def _cgroup_cpu_limit():
+    """Effective CPU count from a Linux cgroup CPU quota, or None if unlimited.
+
+    Reads cgroup v2 (``cpu.max``) then v1 (``cpu.cfs_quota_us`` /
+    ``cpu.cfs_period_us``). ``quota / period`` is the number of cores the
+    container is actually allowed, rounded up. Returns None when no quota is set
+    or the files are absent (non-Linux, non-containerized).
+    """
+    try:
+        with open("/sys/fs/cgroup/cpu.max") as f:
+            quota, period = f.read().split()
+        if quota != "max":
+            return -(-int(quota) // int(period))  # ceil division
+    except (OSError, ValueError):
+        pass
+    try:
+        with open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us") as f:
+            quota = int(f.read())
+        with open("/sys/fs/cgroup/cpu/cpu.cfs_period_us") as f:
+            period = int(f.read())
+        if quota > 0 and period > 0:
+            return -(-quota // period)
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def cpu_count():
+    """Number of usable CPUs, honoring affinity masks and cgroup CPU quotas.
+
+    Replaces our former reliance on ``joblib.cpu_count()``: respects the
+    process's CPU affinity (Linux) and Linux cgroup (v1/v2) quotas so we don't
+    over-subscribe threads inside a CPU-limited container. Falls back to the
+    logical CPU count where those mechanisms aren't available (macOS, Windows).
+    """
+    count = os.cpu_count() or 1
+    if hasattr(os, "sched_getaffinity"):
+        try:
+            count = len(os.sched_getaffinity(0))
+        except OSError:
+            pass
+    limit = _cgroup_cpu_limit()
+    if limit:
+        count = min(count, limit)
+    return max(1, int(count))
+
+
 @functools.lru_cache
 def _log_kernels(sigma):
     # scipy.ndimage.gaussian_laplace builds separable order-0 and order-2
