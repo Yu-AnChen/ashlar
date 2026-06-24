@@ -69,7 +69,10 @@ def refine_angle(layer_aligner, rank=None, top_k=None, sigma=1):
     # threaded calls share read-only inputs with no cross-thread state.
     if not img_pairs:
         return np.nan
-    n_workers = min(len(img_pairs), utils.cpu_count())
+    # Each register_angle holds a large FFT/warp_polar working set, so cap the
+    # pool: a handful of threads saturates these ~30 tiny tasks without the RAM
+    # spike that cpu_count concurrent FFTs would cause.
+    n_workers = min(len(img_pairs), utils.cpu_count(), 4)
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
         angles = list(executor.map(
             lambda pair: utils.register_angle(pair[0], pair[1], sigma), img_pairs
