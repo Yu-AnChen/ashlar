@@ -574,6 +574,12 @@ class CachingReader(Reader):
         self.channel = channel
         self._cache = {}
 
+    def __getstate__(self):
+        # Keep the tile cache out of the pickle; the live cache is untouched.
+        state = self.__dict__.copy()
+        state["_cache"] = {}
+        return state
+
     @property
     def metadata(self):
         return self.reader.metadata

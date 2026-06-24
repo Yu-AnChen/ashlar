@@ -96,7 +96,6 @@ def run_orion(
         fig.savefig(qc_dir / f"{raw.stem}.ashlarqc.pdf", bbox_inches="tight")
         plt.close("all")
 
-        c1e.reader._cache = {}
         with open(pickle_path, "wb") as f:
             pickle.dump(c21l, f)
 
