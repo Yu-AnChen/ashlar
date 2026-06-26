@@ -1142,6 +1142,16 @@ class LayerAligner(object):
         # rotation is carried to the discarded/model-filled tiles too. With no
         # rotation (or too few kept tiles) this leaves the original baseline
         # untouched -- a strict no-op.
+        #
+        # Sign convention (verified end-to-end on real data by sweeping the
+        # applied angle and reading this value back): the fit maps predictions ->
+        # positions, so residual_rotation == true_cycle_rotation minus whatever
+        # rotation was already applied upstream (e.g. rc.align_cycles' "refined
+        # cycle rotation"). Hence residual with the SAME sign as the applied
+        # correction means it was UNDER-corrected (more rotation still needed in
+        # that direction); the OPPOSITE sign means it was over-corrected. It is
+        # NOT the over-rotation -- a small residual of either sign just means the
+        # upstream correction nearly hit the true cycle rotation.
         if keep.sum() >= self._min_kept_for_rotation:
             M, t = _fit_similarity(predictions[keep], self.positions[keep])
             rotation = float(np.degrees(np.arctan2(M[1, 0], M[0, 0])))
