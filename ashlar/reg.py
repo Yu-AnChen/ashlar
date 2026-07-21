@@ -997,8 +997,17 @@ class LayerAligner(object):
     _min_kept_for_rotation = 10
     _rotation_tol = 0.01
 
+    # Thread pool size for register_all when num_workers is left unset. Each
+    # register() is dominated by numpy/scipy FFTs and image reads, both of which
+    # release the GIL, so threads give real parallelism without forking workers.
+    # Kept small: a tile registration holds several full-tile arrays plus FFT
+    # working buffers, and the reads behind it don't scale past a few threads
+    # anyway (BioformatsReader serializes on a process-wide lock, and a warm
+    # CachingReader is memory-bound).
+    _default_num_workers = 4
+
     def __init__(self, reader, reference_aligner, channel=None, max_shift=15,
-                 filter_sigma=0.0, verbose=False):
+                 filter_sigma=0.0, verbose=False, num_workers=None):
         self.reader = reader
         self.reference_aligner = reference_aligner
         if channel is None:
@@ -1009,6 +1018,7 @@ class LayerAligner(object):
         self.max_shift_pixels = self.max_shift / self.metadata.pixel_size
         self.filter_sigma = filter_sigma
         self.verbose = verbose
+        self.num_workers = num_workers
         # FIXME Still a bit muddled here on the use of metadata positions vs.
         # corrected positions from the reference aligner. We probably want to
         # use metadata positions to find the cycle-to-cycle tile
@@ -1046,18 +1056,39 @@ class LayerAligner(object):
         self.reference_aligner_positions = self.reference_aligner.positions[self.reference_idx]
 
     def register_all(self):
+        from concurrent.futures import ThreadPoolExecutor
+
         n = self.metadata.num_images
         self.shifts = np.empty((n, 2))
         self.errors = np.empty(n)
         self.shifts_bg = np.empty((n, 2))
-        for i in range(n):
-            if self.verbose:
-                sys.stdout.write("\r    aligning tile %d/%d" % (i + 1, n))
-                sys.stdout.flush()
+        num_workers = self.num_workers
+        if num_workers is None:
+            num_workers = self._default_num_workers
+        num_workers = max(1, min(n, utils.cpu_count(), num_workers))
+        done = 0
+        lock = threading.Lock()
+
+        def work(i):
+            nonlocal done
             shift, error, bg_shift = self.register(i)
+            # Each task owns index i alone, so these writes into the
+            # pre-allocated arrays need no synchronization and the result is
+            # identical to the sequential order.
             self.shifts[i] = shift
             self.errors[i] = error
             self.shifts_bg[i] = bg_shift
+            if self.verbose:
+                with lock:
+                    done += 1
+                    # Tiles finish out of order, so this counts completions
+                    # rather than naming the tile being worked on.
+                    sys.stdout.write("\r    aligning tile %d/%d" % (done, n))
+                    sys.stdout.flush()
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            # list() forces the lazy map so a worker exception propagates here.
+            list(executor.map(work, range(n)))
         if self.verbose:
             print(flush=True)
 
