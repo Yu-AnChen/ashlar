@@ -129,7 +129,7 @@ def _make_layer_aligner(c2rr, c1e, corrected_positions, channel, max_shift, filt
 def process_rotated_reader(
     reader, edge_aligner,
     channel=None, max_shift=15,
-    filter_sigma=0.0
+    filter_sigma=0.0, corner_tol=0.1,
 ):
     c2r = reader
     c1e = edge_aligner
@@ -145,16 +145,29 @@ def process_rotated_reader(
     correct_position(c21l, angle=None)
     set_pairs(c21l)
 
-    if c21l.cycle_tform.rotation == 0:
+    def _finalize_unrotated():
         c21l.register_all()
         c21l.calculate_positions()
         c21l.mosaic_shape = c1e.mosaic_shape
         return c21l
 
+    if c21l.cycle_tform.rotation == 0:
+        return _finalize_unrotated()
+
     edgy_scores = tile_edge_score(c2r, c21l.channel)
     rank = np.argsort(edgy_scores)[::-1]
     angle = refine_angle(c21l, rank=rank, top_k=30)
     print(f'\r    refined cycle rotation = {angle:.4f} degrees', flush=True)
+
+    # Convert the corner-displacement budget (px) to an angle threshold: a
+    # rotation about a tile center moves the tile's farthest corner by
+    # ``half_diag * radians``. A refined angle below this (or NaN, when
+    # refinement found no usable overlaps) is not worth the rotated-reader
+    # resampling -- fall back to the unrotated positions.
+    half_diag = 0.5 * float(np.hypot(*c2r.metadata.size))
+    angle_tol = np.degrees(corner_tol / half_diag)
+    if not np.isfinite(angle) or abs(angle) < angle_tol:
+        return _finalize_unrotated()
 
     c2rr, corrected_positions = _build_rotated_reader(c2r, c1e, angle, SCALE)
     c21lr = _make_layer_aligner(
